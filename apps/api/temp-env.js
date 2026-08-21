@@ -1,0 +1,1 @@
+import 'dotenv/config'; console.log('SQLSERVER_HOST:', process.env.SQLSERVER_HOST); console.log('SQLSERVER_PORT:', process.env.SQLSERVER_PORT); console.log('SQLSERVER_DATABASE:', process.env.SQLSERVER_DATABASE); console.log('SQLSERVER_USER:', process.env.SQLSERVER_USER); console.log('SQLSERVER_PASSWORD:', process.env.SQLSERVER_PASSWORD);

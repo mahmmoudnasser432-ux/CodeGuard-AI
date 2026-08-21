@@ -1,0 +1,22 @@
+{
+  "name": "codeguard-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Enterprise AI-powered software engineering SaaS platform.",
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "lint": "npm run lint -w apps/api && npm run lint -w apps/web",
+    "test": "npm run test -w apps/api",
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run start -w apps/web",
+    "migrate": "tsx apps/api/src/migration-runner.ts",
+    "seed": "tsx apps/api/src/seed-runner.ts"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  }
+}
