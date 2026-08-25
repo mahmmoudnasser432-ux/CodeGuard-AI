@@ -1,6 +1,6 @@
-import { sqlPool } from "../database/sqlserver.ts";
-import { EmailVerificationToken } from "../../domain/entities/email-verification-token.ts";
-import { EmailVerificationTokenRepository } from "../../domain/repositories/email-verification-token-repository.ts";
+import { sqlPool } from "../database/sqlserver.js";
+import { EmailVerificationToken } from "../../domain/entities/email-verification-token.js";
+import { EmailVerificationTokenRepository } from "../../domain/repositories/email-verification-token-repository.js";
 
 export class SqlEmailVerificationTokenRepository implements EmailVerificationTokenRepository {
   async create(token: EmailVerificationToken): Promise<EmailVerificationToken> {

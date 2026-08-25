@@ -1,6 +1,6 @@
-import { sqlPool } from "../database/sqlserver.ts";
-import { InterviewQuestion, InterviewResult, InterviewSession } from "../../domain/entities/interview.ts";
-import { InterviewRepository } from "../../domain/repositories/interview-repository.ts";
+import { sqlPool } from "../database/sqlserver.js";
+import { InterviewQuestion, InterviewResult, InterviewSession } from "../../domain/entities/interview.js";
+import { InterviewRepository } from "../../domain/repositories/interview-repository.js";
 
 export class SqlInterviewRepository implements InterviewRepository {
   async saveSession(session: InterviewSession): Promise<InterviewSession> {
@@ -28,7 +28,7 @@ export class SqlInterviewRepository implements InterviewRepository {
             Title = source.Title,
             CreatedAt = source.CreatedAt
         WHEN NOT MATCHED THEN
-          INSERT (Id, Title, CandidateUserId, RecruiterUserId, RepositoryId, Status, CreatedAt)
+          INSERT INTO dbo.Interviews (Id, Title, CandidateUserId, RecruiterUserId, RepositoryId, Status, CreatedAt)
           VALUES (source.Id, source.Title, source.CandidateUserId, source.RecruiterUserId,
                   source.RepositoryId, source.Status, source.CreatedAt);
       `);
@@ -104,7 +104,7 @@ export class SqlInterviewRepository implements InterviewRepository {
             Recommendation = source.Recommendation,
             CreatedAt = source.CreatedAt
         WHEN NOT MATCHED THEN
-          INSERT (Id, InterviewSessionId, TechnicalScore, CommunicationScore,
+          INSERT INTO dbo.InterviewResults (Id, InterviewSessionId, TechnicalScore, CommunicationScore,
                   ProblemSolvingScore, Recommendation, CreatedAt)
           VALUES (source.Id, source.InterviewSessionId, source.TechnicalScore,
                   source.CommunicationScore, source.ProblemSolvingScore, source.Recommendation,

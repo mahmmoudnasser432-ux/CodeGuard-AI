@@ -1,4 +1,4 @@
-import { Notification } from "../entities/notification.ts";
+import { Notification } from "../entities/notification.js";
 
 export interface NotificationRepository {
   save(notification: Notification): Promise<Notification>;

@@ -1,6 +1,5 @@
 from app.models.analysis import AnalysisRequest, AnalysisResponse, AnalysisScore, Finding
 
-
 RISK_PATTERNS = [
     ("critical", "Security", "Dynamic code execution", "Avoid eval-like execution paths.", "Replace dynamic execution with explicit parsing or allowlisted dispatch."),
     ("high", "Security", "Hardcoded secret", "The code appears to contain a credential-like value.", "Move secrets to a managed vault and inject through environment variables."),
@@ -56,7 +55,23 @@ def analyze_code(kind: str, request: AnalysisRequest) -> AnalysisResponse:
             recommendation="Select explicit columns and enforce least-privilege data access."
         ))
 
-    if not findings:
+    if kind == "repository-analysis":
+        findings.append(Finding(
+            severity="info",
+            category="Architecture",
+            title="Repository structure evaluation",
+            description="Repository architecture evaluated for modularity and maintainability.",
+            recommendation="Maintain clear separation between domain logic and external integrations."
+        ))
+    elif kind == "interview-generator":
+        findings.append(Finding(
+            severity="info",
+            category="Quality",
+            title="Interview question topics identified",
+            description=f"Generated questions assessing {request.language} syntax, security, and algorithmic complexity.",
+            recommendation="Use questions to assess candidate code comprehension and edge case handling."
+        ))
+    elif not findings:
         findings.append(Finding(
             severity="info",
             category="Quality",
@@ -68,7 +83,9 @@ def analyze_code(kind: str, request: AnalysisRequest) -> AnalysisResponse:
     summary = f"{kind.replace('-', ' ').title()} completed for {request.language} code with {len(findings)} finding(s)."
     generated = None
     if kind == "documentation-generator":
-        generated = f"# Generated Documentation\n\n## Overview\n\n{summary}\n\n## Notes\n\nReview findings before publishing."
+        generated = f"# Generated Documentation\n\n## Overview\n\n{summary}\n\n## Code Specification\n- Language: {request.language}\n- Mode: {request.mode}\n\n## Notes\nReview findings before publishing."
+    elif kind == "interview-generator":
+        generated = f"# Technical Interview Questions\n\n## Overview\nQuestions based on {request.language} implementation:\n\n1. Explain the primary control flow and algorithmic complexity of this code.\n2. How would you refactor this module to handle concurrency or high throughput?\n3. What security or error-handling improvements would you recommend?"
 
     return AnalysisResponse(
         summary=summary,

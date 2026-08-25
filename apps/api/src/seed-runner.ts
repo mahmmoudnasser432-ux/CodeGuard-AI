@@ -1,4 +1,4 @@
-import { sqlPool } from "./infrastructure/database/sqlserver.ts";
+import { sqlPool } from "./infrastructure/database/sqlserver.js";
 import * as fs from "fs";
 import * as path from "path";
 

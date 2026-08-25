@@ -1,5 +1,6 @@
 export interface InterviewSession {
   id: string;
+  title: string;
   candidateUserId?: string | null;
   recruiterUserId?: string | null;
   repositoryId?: string | null;

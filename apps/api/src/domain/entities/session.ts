@@ -5,6 +5,7 @@ export class Session {
   public userId: string;
   public jti: string;
   public expiresAt: Date;
+  public refreshTokenHash?: string;
   public ipAddress?: string;
   public userAgent?: string;
   public createdAt: Date;
@@ -15,6 +16,7 @@ export class Session {
     userId: string;
     jti: string;
     expiresAt: Date;
+    refreshTokenHash?: string;
     ipAddress?: string;
     userAgent?: string;
     createdAt?: Date;
@@ -24,6 +26,7 @@ export class Session {
     this.userId = props.userId;
     this.jti = props.jti;
     this.expiresAt = props.expiresAt;
+    this.refreshTokenHash = props.refreshTokenHash;
     this.ipAddress = props.ipAddress;
     this.userAgent = props.userAgent;
     this.createdAt = props.createdAt ?? new Date();

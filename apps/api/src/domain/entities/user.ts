@@ -7,4 +7,6 @@ export interface User {
   roles: UserRole[];
   isEmailVerified: boolean;
   mfaEnabled: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
 }

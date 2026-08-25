@@ -1,4 +1,4 @@
-import { RefreshToken } from "../entities/refresh-token.ts";
+import { RefreshToken } from "../entities/refresh-token.js";
 
 export interface RefreshTokenRepository {
   /**

@@ -1,4 +1,4 @@
-import { Session } from "../entities/session.ts";
+import { Session } from "../entities/session.js";
 
 export interface SessionRepository {
   /**

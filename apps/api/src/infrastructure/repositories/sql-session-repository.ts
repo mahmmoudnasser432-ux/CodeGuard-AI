@@ -1,6 +1,6 @@
-import { sqlPool } from "../database/sqlserver.ts";
-import { Session } from "../../domain/entities/session.ts";
-import { SessionRepository } from "../../domain/repositories/session-repository.ts";
+import { sqlPool } from "../database/sqlserver.js";
+import { Session } from "../../domain/entities/session.js";
+import { SessionRepository } from "../../domain/repositories/session-repository.js";
 
 export class SqlSessionRepository implements SessionRepository {
   async create(session: Session): Promise<Session> {
@@ -10,13 +10,14 @@ export class SqlSessionRepository implements SessionRepository {
       .input('userId', session.userId)
       .input('jti', session.jti)
       .input('expiresAt', session.expiresAt)
+      .input('refreshTokenHash', session.refreshTokenHash ?? null)
       .input('ipAddress', session.ipAddress ?? null)
       .input('userAgent', session.userAgent ?? null)
       .input('createdAt', session.createdAt)
       .input('revokedAt', session.revokedAt ?? null)
       .query(`
-        INSERT INTO dbo.Sessions (Id, UserId, Jti, ExpiresAt, IpAddress, UserAgent, CreatedAt, RevokedAt)
-        VALUES (@id, @userId, @jti, @expiresAt, @ipAddress, @userAgent, @createdAt, @revokedAt)
+        INSERT INTO dbo.Sessions (Id, UserId, Jti, ExpiresAt, RefreshTokenHash, IpAddress, UserAgent, CreatedAt, RevokedAt)
+        VALUES (@id, @userId, @jti, @expiresAt, @refreshTokenHash, @ipAddress, @userAgent, @createdAt, @revokedAt)
       `);
 
     return session;
@@ -27,7 +28,7 @@ export class SqlSessionRepository implements SessionRepository {
     const result = await pool.request()
       .input('id', id)
       .query(`
-        SELECT Id, UserId, Jti, ExpiresAt, IpAddress, UserAgent, CreatedAt, RevokedAt
+        SELECT Id, UserId, Jti, ExpiresAt, RefreshTokenHash, IpAddress, UserAgent, CreatedAt, RevokedAt
         FROM dbo.Sessions
         WHERE Id = @id
       `);
@@ -40,6 +41,7 @@ export class SqlSessionRepository implements SessionRepository {
       userId: record.UserId,
       jti: record.Jti,
       expiresAt: record.ExpiresAt,
+      refreshTokenHash: record.RefreshTokenHash,
       ipAddress: record.IpAddress,
       userAgent: record.UserAgent,
       createdAt: record.CreatedAt,
@@ -52,7 +54,7 @@ export class SqlSessionRepository implements SessionRepository {
     const result = await pool.request()
       .input('jti', jti)
       .query(`
-        SELECT Id, UserId, Jti, ExpiresAt, IpAddress, UserAgent, CreatedAt, RevokedAt
+        SELECT Id, UserId, Jti, ExpiresAt, RefreshTokenHash, IpAddress, UserAgent, CreatedAt, RevokedAt
         FROM dbo.Sessions
         WHERE Jti = @jti
       `);
@@ -65,6 +67,7 @@ export class SqlSessionRepository implements SessionRepository {
       userId: record.UserId,
       jti: record.Jti,
       expiresAt: record.ExpiresAt,
+      refreshTokenHash: record.RefreshTokenHash,
       ipAddress: record.IpAddress,
       userAgent: record.UserAgent,
       createdAt: record.CreatedAt,
@@ -77,7 +80,7 @@ export class SqlSessionRepository implements SessionRepository {
     const result = await pool.request()
       .input('userId', userId)
       .query(`
-        SELECT Id, UserId, Jti, ExpiresAt, IpAddress, UserAgent, CreatedAt, RevokedAt
+        SELECT Id, UserId, Jti, ExpiresAt, RefreshTokenHash, IpAddress, UserAgent, CreatedAt, RevokedAt
         FROM dbo.Sessions
         WHERE UserId = @userId
         ORDER BY CreatedAt DESC
@@ -88,6 +91,7 @@ export class SqlSessionRepository implements SessionRepository {
       userId: record.UserId,
       jti: record.Jti,
       expiresAt: record.ExpiresAt,
+      refreshTokenHash: record.RefreshTokenHash,
       ipAddress: record.IpAddress,
       userAgent: record.UserAgent,
       createdAt: record.CreatedAt,

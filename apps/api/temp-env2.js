@@ -1,1 +1,0 @@
-import dotenv from 'dotenv'; dotenv.config({ path: '../../.env' }); console.log('SQLSERVER_HOST:', process.env.SQLSERVER_HOST); console.log('SQLSERVER_PORT:', process.env.SQLSERVER_PORT); console.log('SQLSERVER_DATABASE:', process.env.SQLSERVER_DATABASE);

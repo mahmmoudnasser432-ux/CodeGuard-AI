@@ -1,4 +1,4 @@
-import { InterviewQuestion, InterviewResult, InterviewSession } from "../entities/interview.ts";
+import { InterviewQuestion, InterviewResult, InterviewSession } from "../entities/interview.js";
 
 export interface InterviewRepository {
   saveSession(session: InterviewSession): Promise<InterviewSession>;

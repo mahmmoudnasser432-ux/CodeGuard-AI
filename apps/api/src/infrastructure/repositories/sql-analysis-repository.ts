@@ -1,6 +1,6 @@
-import { sqlPool } from "../database/sqlserver.ts";
-import { AnalysisResult } from "../../domain/entities/analysis.ts";
-import { AnalysisRepository } from "../../domain/repositories/analysis-repository.ts";
+import { sqlPool } from "../database/sqlserver.js";
+import { AnalysisResult } from "../../domain/entities/analysis.js";
+import { AnalysisRepository, UserAnalysisStats } from "../../domain/repositories/analysis-repository.js";
 
 export class SqlAnalysisRepository implements AnalysisRepository {
   async save(result: AnalysisResult, requestedByUserId: string): Promise<AnalysisResult> {
@@ -11,18 +11,35 @@ export class SqlAnalysisRepository implements AnalysisRepository {
     await transaction.begin();
 
     try {
+      const startedAt = new Date();
+      const completedAt = new Date();
+      const analysisSqlParameters = {
+        id: result.id,
+        projectId: result.projectId ?? null,
+        repositoryId: null,
+        requestedByUserId,
+        type: result.type,
+        status: "completed",
+        title: result.title,
+        summary: result.summary,
+        startedAt,
+        completedAt
+      };
+
+      console.log("ANALYSIS SQL PARAMETERS:", analysisSqlParameters);
+
       // Insert or update the analysis
       await transaction.request()
-        .input('id', result.id)
-        .input('projectId', result.projectId ?? null) // ProjectId is nullable in the schema
-        .input('repositoryId', null) // RepositoryId is nullable in the schema
-        .input('requestedByUserId', requestedByUserId)
-        .input('type', result.type)
-        .input('status', 'completed') // Assuming completed for now
-        .input('title', result.title)
-        .input('summary', result.summary)
-        .input('startedAt', new Date()) // For simplicity, using now
-        .input('completedAt', new Date())
+        .input('id', analysisSqlParameters.id)
+        .input('projectId', analysisSqlParameters.projectId)
+        .input('repositoryId', analysisSqlParameters.repositoryId)
+        .input('requestedByUserId', analysisSqlParameters.requestedByUserId)
+        .input('type', analysisSqlParameters.type)
+        .input('status', analysisSqlParameters.status)
+        .input('title', analysisSqlParameters.title)
+        .input('summary', analysisSqlParameters.summary)
+        .input('startedAt', analysisSqlParameters.startedAt)
+        .input('completedAt', analysisSqlParameters.completedAt)
         .query(`
           MERGE dbo.Analyses AS target
           USING (SELECT @id as Id, @projectId as ProjectId, @repositoryId as RepositoryId,
@@ -42,8 +59,7 @@ export class SqlAnalysisRepository implements AnalysisRepository {
               CompletedAt = source.CompletedAt
           WHEN NOT MATCHED THEN
             INSERT (Id, ProjectId, RepositoryId, RequestedByUserId, AnalysisType, Status, Title, Summary, StartedAt, CompletedAt)
-            VALUES (source.Id, source.ProjectId, source.RepositoryId, source.RequestedByUserId,
-                    source.AnalysisType, source.Status, source.Title, source.Summary, source.StartedAt, source.CompletedAt);
+            VALUES (source.Id, source.ProjectId, source.RepositoryId, source.RequestedByUserId, source.AnalysisType, source.Status, source.Title, source.Summary, source.StartedAt, source.CompletedAt);
         `);
 
       // Delete existing scores for this analysis (if any)
@@ -70,6 +86,7 @@ export class SqlAnalysisRepository implements AnalysisRepository {
       await transaction.commit();
       return result;
     } catch (error) {
+      console.error("ANALYSIS SQL ERROR:", error);
       await transaction.rollback();
       throw error;
     }
@@ -78,11 +95,10 @@ export class SqlAnalysisRepository implements AnalysisRepository {
   async findById(id: string): Promise<AnalysisResult | null> {
     const pool = await sqlPool.connect();
 
-    // Get the analysis
     const analysisResult = await pool.request()
       .input('id', id)
       .query(`
-        SELECT a.Id, a.AnalysisType as Type, a.Title, a.Summary, a.StartedAt, a.CompletedAt, a.ProjectId
+        SELECT a.Id, a.AnalysisType as Type, a.Title, a.Summary, a.StartedAt, a.CompletedAt, a.ProjectId, a.RequestedByUserId
         FROM dbo.Analyses a
         WHERE a.Id = @id
       `);
@@ -90,7 +106,6 @@ export class SqlAnalysisRepository implements AnalysisRepository {
     const analysisRecord = analysisResult.recordset[0];
     if (!analysisRecord) return null;
 
-    // Get the analysis scores
     const scoresResult = await pool.request()
       .input('id', id)
       .query(`
@@ -103,12 +118,10 @@ export class SqlAnalysisRepository implements AnalysisRepository {
     const scoresRecord = scoresResult.recordset[0];
     if (!scoresRecord) return null;
 
-    // For now, we'll return empty findings and no improvedCode/generatedMarkdown
-    // These would need to be stored in separate tables if required
     return {
       id: analysisRecord.Id,
       title: analysisRecord.Title ?? '',
-      type: analysisRecord.Type as any, // Type is stored as NVARCHAR in DB
+      type: analysisRecord.Type as any,
       summary: analysisRecord.Summary ?? '',
       projectId: analysisRecord.ProjectId,
       scores: {
@@ -119,56 +132,49 @@ export class SqlAnalysisRepository implements AnalysisRepository {
         maintainabilityScore: scoresRecord.MaintainabilityScore,
         readabilityScore: scoresRecord.ReadabilityScore
       },
-      findings: [], // Would need to be retrieved from a findings table if implemented
+      findings: [],
       improvedCode: undefined,
       generatedMarkdown: undefined
     };
   }
 
-  async listByUser(requestedByUserId: string): Promise<AnalysisResult[]> {
+  async listByUser(requestedByUserId: string, limit: number = 50, offset: number = 0): Promise<AnalysisResult[]> {
     const pool = await sqlPool.connect();
 
-    // Get analyses for the user
     const analysesResult = await pool.request()
       .input('userId', requestedByUserId)
+      .input('limit', limit)
+      .input('offset', offset)
       .query(`
-        SELECT a.Id, a.AnalysisType as Type, a.Title, a.Summary, a.StartedAt, a.CompletedAt, a.ProjectId
+        SELECT a.Id, a.AnalysisType as Type, a.Title, a.Summary, a.StartedAt, a.CompletedAt, a.ProjectId,
+               s.OverallScore, s.SecurityScore, s.QualityScore, s.PerformanceScore,
+               s.MaintainabilityScore, s.ReadabilityScore
         FROM dbo.Analyses a
+        LEFT JOIN dbo.AnalysisScores s ON a.Id = s.AnalysisId
         WHERE a.RequestedByUserId = @userId
         ORDER BY a.StartedAt DESC
+        OFFSET @offset ROWS
+        FETCH NEXT @limit ROWS ONLY
       `);
 
     const results: AnalysisResult[] = [];
 
-    for (const analysisRecord of analysesResult.recordset) {
-      // Get the analysis scores for each analysis
-      const scoresResult = await pool.request()
-        .input('analysisId', analysisRecord.Id)
-        .query(`
-          SELECT OverallScore, SecurityScore, QualityScore, PerformanceScore,
-                 MaintainabilityScore, ReadabilityScore
-          FROM dbo.AnalysisScores
-          WHERE AnalysisId = @analysisId
-        `);
-
-      const scoresRecord = scoresResult.recordset[0];
-      if (!scoresRecord) continue;
-
+    for (const record of analysesResult.recordset) {
       results.push({
-        id: analysisRecord.Id,
-        type: analysisRecord.Type as any,
-        title: analysisRecord.Title ?? '',
-        summary: analysisRecord.Summary ?? '',
-        projectId: analysisRecord.ProjectId,
+        id: record.Id,
+        type: record.Type as any,
+        title: record.Title ?? '',
+        summary: record.Summary ?? '',
+        projectId: record.ProjectId,
         scores: {
-          overallScore: scoresRecord.OverallScore,
-          securityScore: scoresRecord.SecurityScore,
-          qualityScore: scoresRecord.QualityScore,
-          performanceScore: scoresRecord.PerformanceScore,
-          maintainabilityScore: scoresRecord.MaintainabilityScore,
-          readabilityScore: scoresRecord.ReadabilityScore
+          overallScore: record.OverallScore ?? 0,
+          securityScore: record.SecurityScore ?? 0,
+          qualityScore: record.QualityScore ?? 0,
+          performanceScore: record.PerformanceScore ?? 0,
+          maintainabilityScore: record.MaintainabilityScore ?? 0,
+          readabilityScore: record.ReadabilityScore ?? 0
         },
-        findings: [], // Would need to be retrieved from a findings table if implemented
+        findings: [],
         improvedCode: undefined,
         generatedMarkdown: undefined
       });
@@ -177,50 +183,114 @@ export class SqlAnalysisRepository implements AnalysisRepository {
     return results;
   }
 
+  async deleteById(id: string, requestedByUserId: string): Promise<boolean> {
+    const pool = await sqlPool.connect();
+    const transaction = pool.transaction();
+    await transaction.begin();
+
+    try {
+      // Check ownership
+      const checkResult = await transaction.request()
+        .input('id', id)
+        .input('userId', requestedByUserId)
+        .query(`SELECT Id FROM dbo.Analyses WHERE Id = @id AND RequestedByUserId = @userId`);
+
+      if (checkResult.recordset.length === 0) {
+        await transaction.rollback();
+        return false;
+      }
+
+      // Delete scores first
+      await transaction.request()
+        .input('analysisId', id)
+        .query(`DELETE FROM dbo.AnalysisScores WHERE AnalysisId = @analysisId`);
+
+      // Delete analysis
+      await transaction.request()
+        .input('id', id)
+        .query(`DELETE FROM dbo.Analyses WHERE Id = @id`);
+
+      await transaction.commit();
+      return true;
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
+
+  async getUserStats(requestedByUserId: string): Promise<UserAnalysisStats> {
+    const pool = await sqlPool.connect();
+
+    const statsResult = await pool.request()
+      .input('userId', requestedByUserId)
+      .query(`
+        SELECT 
+          COUNT(a.Id) as TotalAnalyses,
+          AVG(CAST(s.OverallScore AS FLOAT)) as AvgScore,
+          COUNT(DISTINCT a.RepositoryId) as ReposScanned,
+          COUNT(CASE WHEN a.AnalysisType = 'documentation-generator' THEN 1 END) as DocsGenerated
+        FROM dbo.Analyses a
+        LEFT JOIN dbo.AnalysisScores s ON a.Id = s.AnalysisId
+        WHERE a.RequestedByUserId = @userId
+      `);
+
+    const typeBreakdownResult = await pool.request()
+      .input('userId', requestedByUserId)
+      .query(`
+        SELECT a.AnalysisType, COUNT(a.Id) as Count
+        FROM dbo.Analyses a
+        WHERE a.RequestedByUserId = @userId
+        GROUP BY a.AnalysisType
+      `);
+
+    const stats = statsResult.recordset[0] || {};
+    const scoreByType: Record<string, number> = {};
+    for (const row of typeBreakdownResult.recordset) {
+      scoreByType[row.AnalysisType] = row.Count;
+    }
+
+    return {
+      totalAnalyses: stats.TotalAnalyses || 0,
+      avgScore: Math.round(stats.AvgScore || 0),
+      reposScanned: stats.ReposScanned || 0,
+      docsGenerated: stats.DocsGenerated || 0,
+      scoreByType
+    };
+  }
+
   async findByProjectId(projectId: string): Promise<AnalysisResult[]> {
     const pool = await sqlPool.connect();
 
-    // Get analyses for the project
     const analysesResult = await pool.request()
       .input('projectId', projectId)
       .query(`
-        SELECT a.Id, a.AnalysisType as Type, a.Title, a.Summary, a.StartedAt, a.CompletedAt, a.ProjectId
+        SELECT a.Id, a.AnalysisType as Type, a.Title, a.Summary, a.StartedAt, a.CompletedAt, a.ProjectId,
+               s.OverallScore, s.SecurityScore, s.QualityScore, s.PerformanceScore,
+               s.MaintainabilityScore, s.ReadabilityScore
         FROM dbo.Analyses a
+        LEFT JOIN dbo.AnalysisScores s ON a.Id = s.AnalysisId
         WHERE a.ProjectId = @projectId
         ORDER BY a.StartedAt DESC
       `);
 
     const results: AnalysisResult[] = [];
 
-    for (const analysisRecord of analysesResult.recordset) {
-      // Get the analysis scores for each analysis
-      const scoresResult = await pool.request()
-        .input('analysisId', analysisRecord.Id)
-        .query(`
-          SELECT OverallScore, SecurityScore, QualityScore, PerformanceScore,
-                 MaintainabilityScore, ReadabilityScore
-          FROM dbo.AnalysisScores
-          WHERE AnalysisId = @analysisId
-        `);
-
-      const scoresRecord = scoresResult.recordset[0];
-      if (!scoresRecord) continue;
-
+    for (const record of analysesResult.recordset) {
       results.push({
-        id: analysisRecord.Id,
-        type: analysisRecord.Type as any,
-        title: analysisRecord.Title ?? '',
-        summary: analysisRecord.Summary ?? '',
-        projectId: analysisRecord.ProjectId,
+        id: record.Id,
+        type: record.Type as any,
+        title: record.Title ?? '',
+        summary: record.Summary ?? '',
+        projectId: record.ProjectId,
         scores: {
-          overallScore: scoresRecord.OverallScore,
-          securityScore: scoresRecord.SecurityScore,
-          qualityScore: scoresRecord.QualityScore,
-          performanceScore: scoresRecord.PerformanceScore,
-          maintainabilityScore: scoresRecord.MaintainabilityScore,
-          readabilityScore: scoresRecord.ReadabilityScore
+          overallScore: record.OverallScore ?? 0,
+          securityScore: record.SecurityScore ?? 0,
+          qualityScore: record.QualityScore ?? 0,
+          performanceScore: record.PerformanceScore ?? 0,
+          maintainabilityScore: record.MaintainabilityScore ?? 0,
+          readabilityScore: record.ReadabilityScore ?? 0
         },
-        findings: [], // Would need to be retrieved from a findings table if implemented
+        findings: [],
         improvedCode: undefined,
         generatedMarkdown: undefined
       });

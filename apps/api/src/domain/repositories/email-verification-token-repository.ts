@@ -1,4 +1,4 @@
-import { EmailVerificationToken } from "../entities/email-verification-token.ts";
+import { EmailVerificationToken } from "../entities/email-verification-token.js";
 
 export interface EmailVerificationTokenRepository {
   /**

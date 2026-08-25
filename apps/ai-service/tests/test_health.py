@@ -6,4 +6,11 @@ def test_health():
     client = TestClient(app)
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    data = response.json()
+    assert data["status"] == "healthy"
+    assert data["version"] == "0.1.0"
+    assert "gemini" in data
+    assert "circuitBreaker" in data
+    assert "state" in data["circuitBreaker"]
+    assert "cache" in data
+    assert "connected" in data["cache"]

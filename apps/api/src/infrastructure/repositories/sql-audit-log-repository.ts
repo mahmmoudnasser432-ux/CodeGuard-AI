@@ -1,6 +1,6 @@
-import { sqlPool } from "../database/sqlserver.ts";
-import { AuditLog } from "../../domain/entities/audit-log.ts";
-import { AuditLogRepository } from "../../domain/repositories/audit-log-repository.ts";
+import { sqlPool } from "../database/sqlserver.js";
+import { AuditLog } from "../../domain/entities/audit-log.js";
+import { AuditLogRepository } from "../../domain/repositories/audit-log-repository.js";
 
 export class SqlAuditLogRepository implements AuditLogRepository {
   async save(auditLog: AuditLog): Promise<AuditLog> {

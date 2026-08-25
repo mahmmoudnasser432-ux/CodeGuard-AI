@@ -1,6 +1,6 @@
-import { sqlPool } from "../database/sqlserver.ts";
-import { Report } from "../../domain/entities/report.ts";
-import { ReportRepository } from "../../domain/repositories/report-repository.ts";
+import { sqlPool } from "../database/sqlserver.js";
+import { Report } from "../../domain/entities/report.js";
+import { ReportRepository } from "../../domain/repositories/report-repository.js";
 
 export class SqlReportRepository implements ReportRepository {
   async save(report: Report): Promise<Report> {
@@ -27,7 +27,7 @@ export class SqlReportRepository implements ReportRepository {
             Content = source.Content,
             CreatedAt = source.CreatedAt
         WHEN NOT MATCHED THEN
-          INSERT (Id, AnalysisId, Title, Format, StorageUrl, Content, CreatedAt)
+          INSERT INTO dbo.Reports (Id, AnalysisId, Title, Format, StorageUrl, Content, CreatedAt)
           VALUES (source.Id, source.AnalysisId, source.Title, source.Format, source.StorageUrl,
                   source.Content, source.CreatedAt);
       `);

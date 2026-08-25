@@ -1,4 +1,4 @@
-import { AuditLog } from "../entities/audit-log.ts";
+import { AuditLog } from "../entities/audit-log.js";
 
 export interface AuditLogRepository {
   save(auditLog: AuditLog): Promise<AuditLog>;

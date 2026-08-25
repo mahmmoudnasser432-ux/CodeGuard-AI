@@ -1,4 +1,4 @@
-import { PasswordResetToken } from "../entities/password-reset-token.ts";
+import { PasswordResetToken } from "../entities/password-reset-token.js";
 
 export interface PasswordResetTokenRepository {
   /**

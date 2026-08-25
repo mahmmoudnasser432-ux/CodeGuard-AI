@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import type { UserRole } from "../../domain/entities/user.js";
+import type { UserRole } from "../../../domain/entities/user.js";
 
 /**
  * Middleware to check if user has the required role
@@ -55,7 +55,7 @@ export function authorizeAllRole(...roles: UserRole[]) {
       return;
     }
 
-    if (!req.user.roles || !roles.every((role) => req.user.roles?.includes(role))) {
+    if (!req.user!.roles || !roles.every((role) => req.user!.roles!.includes(role))) {
       res.status(403).json({ error: "INSUFFICIENT_PERMISSIONS" });
       return;
     }

@@ -2,8 +2,8 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { env } from "../../config/env.js";
 import { User } from "../../domain/entities/user.js";
-import { Session } from "../../domain/entities/session.ts";
-import { RefreshToken } from "../../domain/entities/refresh-token.ts";
+import { Session } from "../../domain/entities/session.js";
+import { RefreshToken } from "../../domain/entities/refresh-token.js";
 
 export class TokenService {
   /**
@@ -26,25 +26,43 @@ export class TokenService {
       sub: user.id,
       email: user.email,
       roles: user.roles,
-      jti: jti
+      jti: jti,
+      displayName: user.displayName,
+      isEmailVerified: user.isEmailVerified
     };
 
     const secret = env.JWT_ACCESS_SECRET || "fallback-secret-for-development";
-const expiresIn = env.JWT_ACCESS_EXPIRES_IN || "15m";
+    const expiresIn = env.JWT_ACCESS_EXPIRES_IN || "15m";
 
-return jwt.sign(payload, secret, {
-      expiresIn: expiresIn,
-      issuer: "codeguard-ai"
-    });
+    const options = {
+      issuer: "codeguard-ai",
+      ...(expiresIn && { expiresIn: expiresIn as unknown as jwt.SignOptions['expiresIn'] })
+    } as jwt.SignOptions;
+
+    return jwt.sign(payload, secret, options);
   }
 
   /**
-   * Create a refresh token (plain token that will be hashed before storage)
+   * Create a refresh token (JWT that will be hashed before storage)
    */
-  static async createRefreshToken(): Promise<string> {
-    // Generate a random refresh token
-    const buffer = require('crypto').randomBytes(32);
-    return buffer.toString('hex');
+  static async createRefreshToken(userId: string, jti: string): Promise<string> {
+    // Create a JWT containing userId and jti for the refresh token
+    const payload = {
+      sub: userId,
+      jti: jti,
+      // Add timestamp to prevent replay attacks (optional, since we hash and store)
+      iat: Math.floor(Date.now() / 1000)
+    };
+
+    const secret = env.JWT_REFRESH_SECRET || "fallback-refresh-secret-for-development";
+    const expiresIn = env.JWT_REFRESH_EXPIRES_IN || "7d";
+
+    const options = {
+      issuer: "codeguard-ai",
+      ...(expiresIn && { expiresIn: expiresIn as unknown as jwt.SignOptions['expiresIn'] })
+    } as jwt.SignOptions;
+
+    return jwt.sign(payload, secret, options);
   }
 
   /**
@@ -66,7 +84,7 @@ return jwt.sign(payload, secret, {
   /**
    * Create a session entity from user and access token JTI
    */
-  static createSessionFromAccessToken(user: User, accessToken: string, ipAddress?: string, userAgent?: string): Session {
+  static createSessionFromAccessToken(user: User, accessToken: string, refreshTokenHash?: string, ipAddress?: string, userAgent?: string): Session {
     // Decode the access token to get the JTI
     const decoded = jwt.decode(accessToken) as { jti?: string };
     if (!decoded?.jti) {
@@ -82,6 +100,7 @@ return jwt.sign(payload, secret, {
       userId: user.id,
       jti: decoded.jti,
       expiresAt: expiresAt,
+      refreshTokenHash: refreshTokenHash,
       ipAddress: ipAddress,
       userAgent: userAgent
     });

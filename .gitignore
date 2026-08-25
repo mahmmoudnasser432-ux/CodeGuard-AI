@@ -1,10 +1,42 @@
+# Dependencies
 node_modules/
+.pnp
+.pnp.js
+
+# Build & Production Artifacts
 dist/
-.angular/
-.env
-*.log
-coverage/
+build/
+.next/
+out/
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Python Artifacts
 __pycache__/
+*.py[cod]
+*$py.class
 .pytest_cache/
 .venv/
-*.pyc
+env/
+venv/
+*.log
+
+# Environment & Secrets
+.env
+.env*.local
+.env.production
+.env.staging
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/
+.agents/
+
+# Testing & Scratch
+coverage/
+structure.txt
+migration-output.txt
+.angular/

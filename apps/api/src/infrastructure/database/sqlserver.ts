@@ -1,5 +1,5 @@
 import sql from "mssql";
-import { env } from "../../config/env.ts";
+import { env } from "../../config/env.js";
 
 export const sqlPool = new sql.ConnectionPool({
   server: env.SQLSERVER_HOST,

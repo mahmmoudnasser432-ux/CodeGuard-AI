@@ -1,6 +1,6 @@
-import { sqlPool } from "../database/sqlserver.ts";
-import { Project } from "../../domain/entities/project.ts";
-import { ProjectRepository } from "../../domain/repositories/project-repository.ts";
+import { sqlPool } from "../database/sqlserver.js";
+import { Project } from "../../domain/entities/project.js";
+import { ProjectRepository } from "../../domain/repositories/project-repository.js";
 
 export class SqlProjectRepository implements ProjectRepository {
   async save(project: Project): Promise<Project> {
@@ -24,9 +24,7 @@ export class SqlProjectRepository implements ProjectRepository {
             Description = source.Description,
             UpdatedAt = source.UpdatedAt
         WHEN NOT MATCHED THEN
-          INSERT (Id, OwnerUserId, Name, Description, CreatedAt, UpdatedAt)
-          VALUES (source.Id, source.OwnerUserId, source.Name, source.Description,
-                  source.CreatedAt, source.UpdatedAt);
+          INSERT INTO dbo.Projects (Id, OwnerUserId, Name, Description, CreatedAt, UpdatedAt) VALUES (source.Id, source.OwnerUserId, source.Name, source.Description, source.CreatedAt, source.UpdatedAt);
       `);
 
     return project;

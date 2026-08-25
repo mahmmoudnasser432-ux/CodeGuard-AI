@@ -12,6 +12,6 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
 
   res.status(500).json({
     error: "INTERNAL_SERVER_ERROR",
-    message: "The request could not be completed."
+    message: error.message
   });
 };

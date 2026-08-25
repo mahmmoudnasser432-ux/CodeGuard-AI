@@ -39,3 +39,20 @@ class AnalysisResponse(BaseModel):
     findings: list[Finding]
     improvedCode: str | None = None
     generatedMarkdown: str | None = None
+    source: Literal[
+        "REAL_GEMINI",
+        "REAL_OPENAI",
+        "REAL_OPENROUTER",
+        "FALLBACK_ANALYZER",
+        "QUOTA_EXCEEDED",
+    ] = "REAL_GEMINI"
+    analysisSource: Literal[
+        "REAL_GEMINI",
+        "REAL_OPENAI",
+        "REAL_OPENROUTER",
+        "FALLBACK_ANALYZER",
+        "QUOTA_EXCEEDED",
+    ] = "REAL_GEMINI"
+    provider: str = "google-gemini"
+    model: str | None = None
+    degradationReason: str | None = None

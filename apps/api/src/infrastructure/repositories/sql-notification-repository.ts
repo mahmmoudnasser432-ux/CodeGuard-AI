@@ -1,6 +1,6 @@
-import { sqlPool } from "../database/sqlserver.ts";
-import { Notification } from "../../domain/entities/notification.ts";
-import { NotificationRepository } from "../../domain/repositories/notification-repository.ts";
+import { sqlPool } from "../database/sqlserver.js";
+import { Notification } from "../../domain/entities/notification.js";
+import { NotificationRepository } from "../../domain/repositories/notification-repository.js";
 
 export class SqlNotificationRepository implements NotificationRepository {
   async save(notification: Notification): Promise<Notification> {
@@ -27,7 +27,7 @@ export class SqlNotificationRepository implements NotificationRepository {
             ReadAt = source.ReadAt,
             CreatedAt = source.CreatedAt
         WHEN NOT MATCHED THEN
-          INSERT (Id, UserId, Type, Title, Body, ReadAt, CreatedAt)
+          INSERT INTO dbo.Notifications (Id, UserId, Type, Title, Body, ReadAt, CreatedAt)
           VALUES (source.Id, source.UserId, source.Type, source.Title,
                   source.Body, source.ReadAt, source.CreatedAt);
       `);

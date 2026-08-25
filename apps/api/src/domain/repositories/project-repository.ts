@@ -1,4 +1,4 @@
-import { Project } from "../entities/project.ts";
+import { Project } from "../entities/project.js";
 
 export interface ProjectRepository {
   save(project: Project): Promise<Project>;

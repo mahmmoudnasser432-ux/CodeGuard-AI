@@ -7,6 +7,13 @@ export type AnalysisType =
   | "repository-analysis"
   | "scoring-engine";
 
+export type AnalysisSource =
+  | "REAL_GEMINI"
+  | "REAL_OPENAI"
+  | "REAL_OPENROUTER"
+  | "FALLBACK_ANALYZER"
+  | "QUOTA_EXCEEDED";
+
 export interface AnalysisScore {
   overallScore: number;
   securityScore: number;
@@ -35,4 +42,9 @@ export interface AnalysisResult {
   improvedCode?: string;
   generatedMarkdown?: string;
   projectId?: string;
+  source?: AnalysisSource;
+  analysisSource?: AnalysisSource;
+  provider?: string;
+  model?: string;
+  degradationReason?: string;
 }

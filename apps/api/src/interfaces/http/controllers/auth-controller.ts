@@ -1,12 +1,14 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { AuthService } from "../../application/services/auth-service.ts";
-import type { User } from "../../domain/entities/user.js";
-import type { UserRepository } from "../../domain/repositories/user-repository.ts";
-import { authenticate } from "../middleware/auth.ts";
-import { authorizeRoles } from "../middleware/authorization.ts";
+import { AuthService } from "../../../application/services/auth-service.js";
+import type { User, UserRole } from "../../../domain/entities/user.js";
+import type { UserRepository } from "../../../domain/repositories/user-repository.js";
+import { authenticate } from "../middleware/auth.js";
+import { authorizeRoles } from "../middleware/authorization.js";
 import { randomUUID } from "crypto";
+import { EmailService } from "../../../application/services/email-service.js";
+import { env } from "../../../config/env.js";
 
 // Validation schemas
 const registerSchema = z.object({
@@ -34,6 +36,7 @@ export function authController(
   userRepository: UserRepository
 ) {
   const router = Router();
+  const emailService = new EmailService();
 
   // Register endpoint
   router.post("/register", async (req: Request, res: Response, next: NextFunction) => {
@@ -67,16 +70,18 @@ export function authController(
       // Create email verification token
       const verificationToken = await authService.createEmailVerificationToken(user.id);
 
-      // TODO: Send verification email (would integrate with email service)
-      // For now, we'll just return success without actually sending email
-      // In production, this would trigger an email sending service
+      // Send verification email
+      if (env.NODE_ENV !== "test") { // Don't send emails during tests
+        await emailService.sendVerificationEmail(user.email, verificationToken);
+      }
 
       res.status(201).json({
         message: "USER_CREATED_VERIFICATION_EMAIL_SENT",
         userId: user.id
       });
-    } catch (error) {
-      next(error);
+    } catch (err: any) {
+      console.error('Registration error:', err);
+      next(err);
     }
   });
 
@@ -86,17 +91,10 @@ export function authController(
       // Validate input
       const dto = loginSchema.parse(req.body);
 
-      // Find user by email
-      const user = await userRepository.findByEmail(dto.email);
+      // Find user by email and verify password
+      const user = await userRepository.findByCredentials(dto.email, dto.password);
       if (!user) {
-        // Don't reveal whether user exists for security
-        res.status(401).json({ error: "INVALID_CREDENTIALS" });
-        return;
-      }
-
-      // Verify password
-      const isValid = await authService.verifyPassword(dto.password, user.passwordHash);
-      if (!isValid) {
+        // Don't reveal whether user exists or password is invalid
         res.status(401).json({ error: "INVALID_CREDENTIALS" });
         return;
       }
@@ -106,7 +104,7 @@ export function authController(
 
       // Issue tokens with session
       // Extract IP address and user agent from request
-      const ipAddress = req.ip || req.connection.remoteAddress;
+      const ipAddress = req.ip || (req.connection && req.connection.remoteAddress) || '';
       const userAgent = req.get('User-Agent') || '';
 
       const result = await authService.issueTokensWithSession(user, ipAddress, userAgent);
@@ -122,8 +120,9 @@ export function authController(
           roles: user.roles
         }
       });
-    } catch (error) {
-      next(error);
+    } catch (err: any) {
+      console.error('Login error:', err);
+      next(err);
     }
   });
 
@@ -138,7 +137,7 @@ export function authController(
       }
 
       // Extract IP address and user agent from request
-      const ipAddress = req.ip || req.connection.remoteAddress;
+      const ipAddress = req.ip || (req.connection && req.connection.remoteAddress) || '';
       const userAgent = req.get('User-Agent') || '';
 
       // Use authService to refresh token
@@ -147,12 +146,13 @@ export function authController(
       // Return new tokens
       res.json({
         accessToken: result.accessToken,
-        refreshToken: result.refreshToken
+        refreshToken: result.newRefreshToken
       });
-    } catch (error) {
-      if (error.message === 'Invalid or expired refresh token') {
+    } catch (err: any) {
+      console.error('Refresh error:', err);
+      if (err.message === 'Invalid or expired refresh token') {
         res.status(401).json({ error: "INVALID_REFRESH_TOKEN" });
-      } else if (error.message === 'Associated session not found or invalid') {
+      } else if (err.message === 'Associated session not found or invalid') {
         res.status(401).json({ error: "INVALID_SESSION" });
       } else {
         res.status(500).json({ error: "INTERNAL_SERVER_ERROR" });
@@ -171,15 +171,15 @@ export function authController(
       }
 
       // Extract IP address and user agent from request
-      const ipAddress = req.ip || req.connection.remoteAddress;
+      const ipAddress = req.ip || (req.connection && req.connection.remoteAddress) || '';
       const userAgent = req.get('User-Agent') || '';
 
       // Use authService to logout
       await authService.logout(refreshToken);
 
       res.status(204).send();
-    } catch (error) {
-      next(error);
+    } catch (err: any) {
+      next(err);
     }
   });
 
@@ -197,8 +197,8 @@ export function authController(
       await authService.logoutAllSessions(userId);
 
       res.status(204).send();
-    } catch (error) {
-      next(error);
+    } catch (err: any) {
+      next(err);
     }
   });
 
@@ -214,13 +214,16 @@ export function authController(
       // Always return success to prevent email enumeration
       // But only create token if user actually exists
       if (user) {
-        await authService.createPasswordResetToken(user.id);
-        // TODO: Send password reset email (would integrate with email service)
+        const resetToken = await authService.createPasswordResetToken(user.id);
+        // Send password reset email
+        if (env.NODE_ENV !== "test") { // Don't send emails during tests
+          await emailService.sendPasswordResetEmail(user.email, resetToken);
+        }
       }
 
       res.status(200).json({ message: "IF_USER_EXISTS_RESET_EMAIL_SENT" });
-    } catch (error) {
-      next(error);
+    } catch (err: any) {
+      next(err);
     }
   });
 
@@ -238,8 +241,8 @@ export function authController(
       } else {
         res.status(400).json({ valid: false, error: "INVALID_OR_EXPIRED_TOKEN" });
       }
-    } catch (error) {
-      next(error);
+    } catch (err: any) {
+      next(err);
     }
   });
 
@@ -260,18 +263,22 @@ export function authController(
       const passwordHash = await authService.hashPassword(dto.password);
 
       // Update user's password
+      const user = await userRepository.findById(tokenData.userId);
+      if (!user) {
+        res.status(404).json({ error: "USER_NOT_FOUND" });
+        return;
+      }
       await userRepository.save({
-        id: tokenData.userId,
-        passwordHash: passwordHash,
+        ...user,
         updatedAt: new Date()
-      } as Partial<User>, passwordHash);
+      } as User, passwordHash);
 
       // Mark token as used
       await authService.usePasswordResetToken(tokenData.tokenId);
 
       res.status(200).json({ message: "PASSWORD_RESET_SUCCESSFUL" });
-    } catch (error) {
-      next(error);
+    } catch (err: any) {
+      next(err);
     }
   });
 
@@ -290,14 +297,17 @@ export function authController(
 
       // Always return success to prevent email enumeration
       // But only create token if user actually exists and is not verified
-      if (user && !user.emailVerified) {
-        await authService.createEmailVerificationToken(user.id);
-        // TODO: Send verification email (would integrate with email service)
+      if (user && !user.isEmailVerified) {
+        const verificationToken = await authService.createEmailVerificationToken(user.id);
+        // Send verification email
+        if (env.NODE_ENV !== "test") { // Don't send emails during tests
+          await emailService.sendVerificationEmail(user.email, verificationToken);
+        }
       }
 
       res.status(200).json({ message: "IF_USER_EXISTS_VERIFICATION_EMAIL_SENT" });
-    } catch (error) {
-      next(error);
+    } catch (err: any) {
+      next(err);
     }
   });
 
@@ -319,19 +329,24 @@ export function authController(
       }
 
       // Mark user's email as verified
+      const user = await userRepository.findById(tokenData.userId);
+      if (!user) {
+        res.status(404).json({ error: "USER_NOT_FOUND" });
+        return;
+      }
       await userRepository.save({
-        id: tokenData.userId,
-        emailVerified: true,
+        ...user,
+        isEmailVerified: true,
         updatedAt: new Date()
-      } as Partial<User>);
+      } as User, null);
 
       // Mark token as used
       await authService.useEmailVerificationToken(tokenData.tokenId);
 
       // Return success (in a real app, this might redirect to a frontend page)
       res.status(200).json({ message: "EMAIL_VERIFIED_SUCCESSFULLY" });
-    } catch (error) {
-      next(error);
+    } catch (err: any) {
+      next(err);
     }
   });
 
@@ -341,14 +356,14 @@ export function authController(
       // The authenticate middleware should have attached req.user
       // Return user info (excluding sensitive data)
       res.json({
-        id: req.user.sub,
-        email: req.user.email,
-        displayName: req.user.displayName,
-        roles: req.user.roles || [],
-        emailVerified: req.user.emailVerified || false
+        id: req.user!.sub,
+        email: req.user!.email,
+        displayName: req.user!.displayName,
+        roles: req.user!.roles || [],
+        isEmailVerified: req.user!.isEmailVerified || false
       });
-    } catch (error) {
-      next(error);
+    } catch (err: any) {
+      next(err);
     }
   });
 

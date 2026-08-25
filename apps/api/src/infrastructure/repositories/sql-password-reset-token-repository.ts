@@ -1,6 +1,6 @@
-import { sqlPool } from "../database/sqlserver.ts";
-import { PasswordResetToken } from "../../domain/entities/password-reset-token.ts";
-import { PasswordResetTokenRepository } from "../../domain/repositories/password-reset-token-repository.ts";
+import { sqlPool } from "../database/sqlserver.js";
+import { PasswordResetToken } from "../../domain/entities/password-reset-token.js";
+import { PasswordResetTokenRepository } from "../../domain/repositories/password-reset-token-repository.js";
 
 export class SqlPasswordResetTokenRepository implements PasswordResetTokenRepository {
   async create(token: PasswordResetToken): Promise<PasswordResetToken> {

@@ -4,9 +4,24 @@ import { createApp } from "../src/app.js";
 
 describe("health", () => {
   it("returns service health", async () => {
-    const response = await request(createApp()).get("/health");
+    const { app } = createApp();
+    const response = await request(app).get("/health");
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ status: "ok", service: "codeguard-api" });
+    expect(response.body.status).toBe("ok");
+    expect(response.body.service).toBe("codeguard-api");
+    expect(response.body).toHaveProperty("version");
+    expect(response.body).toHaveProperty("uptime");
+    expect(response.body).toHaveProperty("timestamp");
+  });
+
+  it("returns readiness state", async () => {
+    const { app } = createApp();
+    const response = await request(app).get("/ready");
+
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe("ready");
+    expect(response.body.service).toBe("codeguard-api");
+    expect(response.body).toHaveProperty("dependencies");
   });
 });

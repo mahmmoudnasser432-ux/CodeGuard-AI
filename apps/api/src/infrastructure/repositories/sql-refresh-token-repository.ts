@@ -1,6 +1,6 @@
-import { sqlPool } from "../database/sqlserver.ts";
-import { RefreshToken } from "../../domain/entities/refresh-token.ts";
-import { RefreshTokenRepository } from "../../domain/repositories/refresh-token-repository.ts";
+import { sqlPool } from "../database/sqlserver.js";
+import { RefreshToken } from "../../domain/entities/refresh-token.js";
+import { RefreshTokenRepository } from "../../domain/repositories/refresh-token-repository.js";
 
 export class SqlRefreshTokenRepository implements RefreshTokenRepository {
   async create(token: RefreshToken): Promise<RefreshToken> {
