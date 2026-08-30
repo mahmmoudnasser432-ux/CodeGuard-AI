@@ -14,7 +14,7 @@ logger = logging.getLogger("codeguard.providers.gemini")
 class GeminiProvider(AIProvider):
     """Google Gemini AI Provider."""
 
-    CANDIDATE_MODELS = ["gemini-3.6-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash"]
+    CANDIDATE_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.7-flash"]
 
     def __init__(
         self,
@@ -64,7 +64,7 @@ class GeminiProvider(AIProvider):
 
     @property
     def display_name(self) -> str:
-        return "Google Gemini"
+        return "Gemini"
 
     @property
     def source_type(self) -> str:
@@ -101,7 +101,7 @@ class GeminiProvider(AIProvider):
                 generatedMarkdown=parsed.get("generatedMarkdown"),
                 source="REAL_GEMINI",
                 analysisSource="REAL_GEMINI",
-                provider="google-gemini",
+                provider="Gemini",
                 model=self.model_name,
             )
 

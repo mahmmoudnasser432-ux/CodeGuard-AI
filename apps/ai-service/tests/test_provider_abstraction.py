@@ -9,6 +9,7 @@ from app.providers.gemini_provider import GeminiProvider
 from app.providers.manager import ProviderManager
 from app.providers.openai_provider import OpenAIProvider
 from app.providers.openrouter_provider import OpenRouterProvider
+from app.providers.nvidia_provider import NvidiaProvider
 
 
 @pytest.fixture
@@ -21,7 +22,7 @@ def sample_request() -> AnalysisRequest:
 
 
 class MockHealthyProvider(AIProvider):
-    def __init__(self, name="mock-ai", display_name="Mock AI", model_name="mock-v1", source_type="REAL_GEMINI"):
+    def __init__(self, name="mock-ai", display_name="Mock AI", model_name="mock-v1", source_type="REAL_NVIDIA"):
         self._name = name
         self._display = display_name
         self._model = model_name
@@ -57,7 +58,7 @@ class MockHealthyProvider(AIProvider):
             findings=[Finding(severity="low", category="style", title="Good code", description="Code is clean", recommendation="Keep it up")],
             source=self._source,
             analysisSource=self._source,
-            provider=self._name,
+            provider=self._display,
             model=self._model,
         )
 
@@ -81,7 +82,7 @@ class MockFailingProvider(AIProvider):
 
     @property
     def source_type(self) -> str:
-        return "REAL_GEMINI"
+        return "REAL_NVIDIA"
 
     @property
     def is_configured(self) -> bool:
@@ -102,69 +103,81 @@ def test_deterministic_fallback_provider(sample_request):
     assert result.provider == "deterministic-rule-engine"
 
 
-def test_provider_manager_primary_success(sample_request):
-    gemini_mock = MockHealthyProvider(name="gemini", display_name="Google Gemini", model_name="gemini-3.6-flash", source_type="REAL_GEMINI")
+def test_provider_manager_nvidia_primary_success(sample_request):
+    nvidia_mock = MockHealthyProvider(name="nvidia", display_name="NVIDIA", model_name="meta/llama-3.2-11b-vision-instruct", source_type="REAL_NVIDIA")
+    openrouter_mock = MockHealthyProvider(name="openrouter", display_name="OpenRouter", model_name="meta-llama/llama-3.3-70b-instruct", source_type="REAL_OPENROUTER")
     openai_mock = MockHealthyProvider(name="openai", display_name="OpenAI", model_name="gpt-4o-mini", source_type="REAL_OPENAI")
+    gemini_mock = MockHealthyProvider(name="gemini", display_name="Gemini", model_name="gemini-3.6-flash", source_type="REAL_GEMINI")
 
     manager = ProviderManager(
-        primary_provider_name="gemini",
-        gemini_provider=gemini_mock,
+        primary_provider_name="nvidia",
+        nvidia_provider=nvidia_mock,
+        openrouter_provider=openrouter_mock,
         openai_provider=openai_mock,
+        gemini_provider=gemini_mock,
     )
 
     response = asyncio.run(manager.analyze("security-analysis", sample_request))
-    assert response.provider == "gemini"
-    assert response.source == "REAL_GEMINI"
+    assert response.provider == "NVIDIA"
+    assert response.source == "REAL_NVIDIA"
     assert response.degradationReason is None
 
 
-def test_failover_gemini_to_openai(sample_request):
-    gemini_failing = MockFailingProvider(name="gemini", is_quota=True)
-    openai_healthy = MockHealthyProvider(name="openai", display_name="OpenAI", model_name="gpt-4o-mini", source_type="REAL_OPENAI")
+def test_failover_nvidia_to_openrouter(sample_request):
+    nvidia_failing = MockFailingProvider(name="nvidia", is_quota=True)
+    openrouter_healthy = MockHealthyProvider(name="openrouter", display_name="OpenRouter", model_name="meta-llama/llama-3.3-70b-instruct", source_type="REAL_OPENROUTER")
+    openai_mock = MockHealthyProvider(name="openai", display_name="OpenAI", model_name="gpt-4o-mini", source_type="REAL_OPENAI")
+    gemini_mock = MockHealthyProvider(name="gemini", display_name="Gemini", model_name="gemini-3.6-flash", source_type="REAL_GEMINI")
 
     manager = ProviderManager(
-        primary_provider_name="gemini",
-        gemini_provider=gemini_failing,
-        openai_provider=openai_healthy,
-    )
-
-    response = asyncio.run(manager.analyze("security-analysis", sample_request))
-    assert response.provider == "openai"
-    assert response.source == "REAL_OPENAI"
-    assert response.degradationReason is not None
-    assert "Failover triggered" in response.degradationReason
-    assert "OpenAI" in response.degradationReason
-
-
-def test_failover_gemini_and_openai_to_openrouter(sample_request):
-    gemini_failing = MockFailingProvider(name="gemini", is_quota=True)
-    openai_failing = MockFailingProvider(name="openai", is_quota=False)
-    openrouter_healthy = MockHealthyProvider(name="openrouter", display_name="OpenRouter", model_name="claude-3.5-sonnet", source_type="REAL_OPENROUTER")
-
-    manager = ProviderManager(
-        primary_provider_name="gemini",
-        gemini_provider=gemini_failing,
-        openai_provider=openai_failing,
+        primary_provider_name="nvidia",
+        nvidia_provider=nvidia_failing,
         openrouter_provider=openrouter_healthy,
+        openai_provider=openai_mock,
+        gemini_provider=gemini_mock,
     )
 
     response = asyncio.run(manager.analyze("security-analysis", sample_request))
-    assert response.provider == "openrouter"
+    assert response.provider == "OpenRouter"
     assert response.source == "REAL_OPENROUTER"
     assert response.degradationReason is not None
+    assert "Failover triggered" in response.degradationReason
     assert "OpenRouter" in response.degradationReason
 
 
-def test_failover_all_to_deterministic_fallback(sample_request):
-    gemini_failing = MockFailingProvider(name="gemini", is_quota=True)
-    openai_failing = MockFailingProvider(name="openai", is_quota=False)
+def test_failover_nvidia_openrouter_to_openai(sample_request):
+    nvidia_failing = MockFailingProvider(name="nvidia", is_quota=True)
     openrouter_failing = MockFailingProvider(name="openrouter", is_quota=False)
+    openai_healthy = MockHealthyProvider(name="openai", display_name="OpenAI", model_name="gpt-4o-mini", source_type="REAL_OPENAI")
+    gemini_mock = MockHealthyProvider(name="gemini", display_name="Gemini", model_name="gemini-3.6-flash", source_type="REAL_GEMINI")
 
     manager = ProviderManager(
-        primary_provider_name="gemini",
-        gemini_provider=gemini_failing,
-        openai_provider=openai_failing,
+        primary_provider_name="nvidia",
+        nvidia_provider=nvidia_failing,
         openrouter_provider=openrouter_failing,
+        openai_provider=openai_healthy,
+        gemini_provider=gemini_mock,
+    )
+
+    response = asyncio.run(manager.analyze("security-analysis", sample_request))
+    assert response.provider == "OpenAI"
+    assert response.source == "REAL_OPENAI"
+    assert response.degradationReason is not None
+    assert "OpenAI" in response.degradationReason
+
+
+def test_failover_all_to_deterministic_fallback(sample_request):
+    nvidia_failing = MockFailingProvider(name="nvidia", is_quota=True)
+    openrouter_failing = MockFailingProvider(name="openrouter", is_quota=False)
+    openai_failing = MockFailingProvider(name="openai", is_quota=False)
+    gemini_failing = MockFailingProvider(name="gemini", is_quota=False)
+
+    manager = ProviderManager(
+        primary_provider_name="nvidia",
+        nvidia_provider=nvidia_failing,
+        openrouter_provider=openrouter_failing,
+        openai_provider=openai_failing,
+        gemini_provider=gemini_failing,
     )
 
     response = asyncio.run(manager.analyze("security-analysis", sample_request))
@@ -174,19 +187,26 @@ def test_failover_all_to_deterministic_fallback(sample_request):
 
 
 def test_provider_selection_strategy(sample_request):
+    nvidia_mock = MockHealthyProvider(name="nvidia", display_name="NVIDIA", model_name="meta/llama-3.2-11b-vision-instruct", source_type="REAL_NVIDIA")
+    openrouter_mock = MockHealthyProvider(name="openrouter", display_name="OpenRouter", model_name="meta-llama/llama-3.3-70b-instruct", source_type="REAL_OPENROUTER")
     openai_mock = MockHealthyProvider(name="openai", display_name="OpenAI", model_name="gpt-4o-mini", source_type="REAL_OPENAI")
-    gemini_mock = MockHealthyProvider(name="gemini", display_name="Google Gemini", model_name="gemini-3.6-flash", source_type="REAL_GEMINI")
+    gemini_mock = MockHealthyProvider(name="gemini", display_name="Gemini", model_name="gemini-3.6-flash", source_type="REAL_GEMINI")
 
     manager = ProviderManager(
-        primary_provider_name="openai",
-        gemini_provider=gemini_mock,
+        primary_provider_name="nvidia",
+        nvidia_provider=nvidia_mock,
+        openrouter_provider=openrouter_mock,
         openai_provider=openai_mock,
+        gemini_provider=gemini_mock,
     )
 
     chain = manager.get_failover_chain()
-    assert chain[0].name == "openai"
-    assert chain[1].name == "gemini"
+    assert chain[0].name == "nvidia"
+    assert chain[1].name == "openrouter"
+    assert chain[2].name == "openai"
+    assert chain[3].name == "gemini"
+    assert chain[4].name == "fallback"
 
-    response = asyncio.run(manager.analyze("code-review", sample_request))
-    assert response.provider == "openai"
-    assert response.source == "REAL_OPENAI"
+    response = asyncio.run(manager.analyze("security-analysis", sample_request))
+    assert response.provider == "NVIDIA"
+    assert response.source == "REAL_NVIDIA"

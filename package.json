@@ -11,6 +11,12 @@
     "build": "npm run build -w apps/api && npm run build -w apps/web",
     "lint": "npm run lint -w apps/api && npm run lint -w apps/web",
     "test": "npm run test -w apps/api",
+    "test:nvidia": "python -m pytest apps/ai-service/tests/test_nvidia_provider.py -v",
+    "test:providers": "python -m pytest apps/ai-service/tests/test_nvidia_provider.py apps/ai-service/tests/test_failover_scenarios.py apps/ai-service/tests/test_provider_abstraction.py -v",
+    "test:e2e": "npm run test:e2e -w apps/api",
+    "test:ai": "python -m pytest apps/ai-service/tests -v",
+    "test:all": "npm run test -w apps/api && npm run test:e2e -w apps/api && python -m pytest apps/ai-service/tests -v",
+
     "dev:api": "npm run dev -w apps/api",
     "dev:web": "npm run dev -w apps/web",
     "dev:ai": "cd apps/ai-service && python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",

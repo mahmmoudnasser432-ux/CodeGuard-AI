@@ -20,17 +20,21 @@ def health() -> Dict[str, Any]:
         },
         "primaryProvider": provider_manager.primary_name,
         "providers": {
-            "gemini": {
-                "configured": provider_manager.gemini.is_configured,
-                "model": provider_manager.gemini.model_name,
+            "nvidia": {
+                "configured": provider_manager.nvidia.is_configured,
+                "model": provider_manager.nvidia.model_name,
+            },
+            "openrouter": {
+                "configured": provider_manager.openrouter.is_configured,
+                "model": provider_manager.openrouter.model_name,
             },
             "openai": {
                 "configured": provider_manager.openai.is_configured,
                 "model": provider_manager.openai.model_name,
             },
-            "openrouter": {
-                "configured": provider_manager.openrouter.is_configured,
-                "model": provider_manager.openrouter.model_name,
+            "gemini": {
+                "configured": provider_manager.gemini.is_configured,
+                "model": provider_manager.gemini.model_name,
             },
             "fallback": {
                 "configured": True,
@@ -55,7 +59,7 @@ def metrics() -> Dict[str, Any]:
 def register_analysis_route(path: str):
     @router.post(f"/{path}", response_model=AnalysisResponse)
     async def endpoint(request: AnalysisRequest) -> AnalysisResponse:
-        return await gemini_service.analyze(path, request)
+        return await provider_manager.analyze(path, request)
 
 
 for route in [

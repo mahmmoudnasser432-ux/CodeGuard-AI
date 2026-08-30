@@ -20,8 +20,8 @@ export class SqlAnalysisRepository implements AnalysisRepository {
         requestedByUserId,
         type: result.type,
         status: "completed",
-        title: result.title,
-        summary: result.summary,
+        title: result.title ?? null,
+        summary: result.summary ?? "",
         startedAt,
         completedAt
       };

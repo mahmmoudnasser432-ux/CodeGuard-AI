@@ -79,86 +79,116 @@ class MockProvider(AIProvider):
             ],
             source=self._source,
             analysisSource=self._source,
-            provider=self._name if self._name != "gemini" else "google-gemini",
+            provider=self._display,
             model=self._model,
         )
 
 
-# CASE 1: Gemini succeeds
-def test_case_1_gemini_succeeds(sample_request):
-    gemini = MockProvider("gemini", "Google Gemini", "gemini-3.6-flash", "REAL_GEMINI")
+# CASE 1: NVIDIA succeeds (Primary)
+def test_case_1_nvidia_succeeds(sample_request):
+    nvidia = MockProvider("nvidia", "NVIDIA", "meta/llama-3.2-11b-vision-instruct", "REAL_NVIDIA")
+    openrouter = MockProvider("openrouter", "OpenRouter", "meta-llama/llama-3.3-70b-instruct", "REAL_OPENROUTER")
     openai = MockProvider("openai", "OpenAI", "gpt-4o-mini", "REAL_OPENAI")
-    openrouter = MockProvider("openrouter", "OpenRouter", "claude-3.5-sonnet", "REAL_OPENROUTER")
+    gemini = MockProvider("gemini", "Gemini", "gemini-3.6-flash", "REAL_GEMINI")
 
     manager = ProviderManager(
-        primary_provider_name="gemini",
-        gemini_provider=gemini,
-        openai_provider=openai,
+        primary_provider_name="nvidia",
+        nvidia_provider=nvidia,
         openrouter_provider=openrouter,
+        openai_provider=openai,
+        gemini_provider=gemini,
     )
 
     response = asyncio.run(manager.analyze("security-analysis", sample_request))
-    assert response.provider == "google-gemini"
-    assert response.model == "gemini-3.6-flash"
-    assert response.source == "REAL_GEMINI"
+    assert response.provider == "NVIDIA"
+    assert response.model == "meta/llama-3.2-11b-vision-instruct"
+    assert response.source == "REAL_NVIDIA"
     assert response.degradationReason is None
 
 
-# CASE 2: Gemini quota exceeded -> OpenAI succeeds
-def test_case_2_gemini_quota_exceeded_openai_succeeds(sample_request):
-    gemini = MockProvider("gemini", "Google Gemini", "gemini-3.6-flash", "REAL_GEMINI", fails=True, is_quota=True)
-    openai = MockProvider("openai", "OpenAI", "gpt-4o-mini", "REAL_OPENAI", fails=False)
-    openrouter = MockProvider("openrouter", "OpenRouter", "claude-3.5-sonnet", "REAL_OPENROUTER")
+# CASE 2: NVIDIA fails -> OpenRouter succeeds (Secondary)
+def test_case_2_nvidia_fails_openrouter_succeeds(sample_request):
+    nvidia = MockProvider("nvidia", "NVIDIA", "meta/llama-3.2-11b-vision-instruct", "REAL_NVIDIA", fails=True, is_quota=True)
+    openrouter = MockProvider("openrouter", "OpenRouter", "meta-llama/llama-3.3-70b-instruct", "REAL_OPENROUTER", fails=False)
+    openai = MockProvider("openai", "OpenAI", "gpt-4o-mini", "REAL_OPENAI")
+    gemini = MockProvider("gemini", "Gemini", "gemini-3.6-flash", "REAL_GEMINI")
 
     manager = ProviderManager(
-        primary_provider_name="gemini",
-        gemini_provider=gemini,
-        openai_provider=openai,
+        primary_provider_name="nvidia",
+        nvidia_provider=nvidia,
         openrouter_provider=openrouter,
+        openai_provider=openai,
+        gemini_provider=gemini,
     )
 
     response = asyncio.run(manager.analyze("security-analysis", sample_request))
-    assert response.provider == "openai"
-    assert response.model == "gpt-4o-mini"
-    assert response.source == "REAL_OPENAI"
-    assert response.degradationReason is not None
-    assert "Failover triggered" in response.degradationReason
-    assert "Google Gemini failed: Quota exceeded" in response.degradationReason
-    assert "Served by OpenAI" in response.degradationReason
-
-
-# CASE 3: Gemini fails -> OpenAI fails -> OpenRouter succeeds
-def test_case_3_gemini_and_openai_fail_openrouter_succeeds(sample_request):
-    gemini = MockProvider("gemini", "Google Gemini", "gemini-3.6-flash", "REAL_GEMINI", fails=True, is_quota=False)
-    openai = MockProvider("openai", "OpenAI", "gpt-4o-mini", "REAL_OPENAI", fails=True, is_quota=False)
-    openrouter = MockProvider("openrouter", "OpenRouter", "claude-3.5-sonnet", "REAL_OPENROUTER", fails=False)
-
-    manager = ProviderManager(
-        primary_provider_name="gemini",
-        gemini_provider=gemini,
-        openai_provider=openai,
-        openrouter_provider=openrouter,
-    )
-
-    response = asyncio.run(manager.analyze("security-analysis", sample_request))
-    assert response.provider == "openrouter"
-    assert response.model == "claude-3.5-sonnet"
+    assert response.provider == "OpenRouter"
+    assert response.model == "meta-llama/llama-3.3-70b-instruct"
     assert response.source == "REAL_OPENROUTER"
     assert response.degradationReason is not None
+    assert "Failover triggered" in response.degradationReason
     assert "Served by OpenRouter" in response.degradationReason
 
 
-# CASE 4: All providers fail (general errors) -> Fallback Analyzer
-def test_case_4_all_providers_fail_general_error(sample_request):
-    gemini = MockProvider("gemini", "Google Gemini", "gemini-3.6-flash", "REAL_GEMINI", fails=True, is_quota=False)
-    openai = MockProvider("openai", "OpenAI", "gpt-4o-mini", "REAL_OPENAI", fails=True, is_quota=False)
-    openrouter = MockProvider("openrouter", "OpenRouter", "claude-3.5-sonnet", "REAL_OPENROUTER", fails=True, is_quota=False)
+# CASE 3: NVIDIA fails -> OpenRouter fails -> OpenAI succeeds (Tertiary)
+def test_case_3_nvidia_and_openrouter_fail_openai_succeeds(sample_request):
+    nvidia = MockProvider("nvidia", "NVIDIA", "meta/llama-3.2-11b-vision-instruct", "REAL_NVIDIA", fails=True, is_quota=False)
+    openrouter = MockProvider("openrouter", "OpenRouter", "meta-llama/llama-3.3-70b-instruct", "REAL_OPENROUTER", fails=True, is_quota=False)
+    openai = MockProvider("openai", "OpenAI", "gpt-4o-mini", "REAL_OPENAI", fails=False)
+    gemini = MockProvider("gemini", "Gemini", "gemini-3.6-flash", "REAL_GEMINI")
 
     manager = ProviderManager(
-        primary_provider_name="gemini",
-        gemini_provider=gemini,
-        openai_provider=openai,
+        primary_provider_name="nvidia",
+        nvidia_provider=nvidia,
         openrouter_provider=openrouter,
+        openai_provider=openai,
+        gemini_provider=gemini,
+    )
+
+    response = asyncio.run(manager.analyze("security-analysis", sample_request))
+    assert response.provider == "OpenAI"
+    assert response.model == "gpt-4o-mini"
+    assert response.source == "REAL_OPENAI"
+    assert response.degradationReason is not None
+    assert "Served by OpenAI" in response.degradationReason
+
+
+# CASE 4: NVIDIA, OpenRouter, OpenAI fail -> Gemini succeeds (Quaternary)
+def test_case_4_nvidia_openrouter_openai_fail_gemini_succeeds(sample_request):
+    nvidia = MockProvider("nvidia", "NVIDIA", "meta/llama-3.2-11b-vision-instruct", "REAL_NVIDIA", fails=True, is_quota=False)
+    openrouter = MockProvider("openrouter", "OpenRouter", "meta-llama/llama-3.3-70b-instruct", "REAL_OPENROUTER", fails=True, is_quota=False)
+    openai = MockProvider("openai", "OpenAI", "gpt-4o-mini", "REAL_OPENAI", fails=True, is_quota=False)
+    gemini = MockProvider("gemini", "Gemini", "gemini-3.6-flash", "REAL_GEMINI", fails=False)
+
+    manager = ProviderManager(
+        primary_provider_name="nvidia",
+        nvidia_provider=nvidia,
+        openrouter_provider=openrouter,
+        openai_provider=openai,
+        gemini_provider=gemini,
+    )
+
+    response = asyncio.run(manager.analyze("security-analysis", sample_request))
+    assert response.provider == "Gemini"
+    assert response.model == "gemini-3.6-flash"
+    assert response.source == "REAL_GEMINI"
+    assert response.degradationReason is not None
+    assert "Served by Gemini" in response.degradationReason
+
+
+# CASE 5: All providers fail (general errors) -> Fallback Analyzer
+def test_case_5_all_providers_fail_general_error(sample_request):
+    nvidia = MockProvider("nvidia", "NVIDIA", "meta/llama-3.2-11b-vision-instruct", "REAL_NVIDIA", fails=True, is_quota=False)
+    openrouter = MockProvider("openrouter", "OpenRouter", "meta-llama/llama-3.3-70b-instruct", "REAL_OPENROUTER", fails=True, is_quota=False)
+    openai = MockProvider("openai", "OpenAI", "gpt-4o-mini", "REAL_OPENAI", fails=True, is_quota=False)
+    gemini = MockProvider("gemini", "Gemini", "gemini-3.6-flash", "REAL_GEMINI", fails=True, is_quota=False)
+
+    manager = ProviderManager(
+        primary_provider_name="nvidia",
+        nvidia_provider=nvidia,
+        openrouter_provider=openrouter,
+        openai_provider=openai,
+        gemini_provider=gemini,
     )
 
     response = asyncio.run(manager.analyze("security-analysis", sample_request))
@@ -169,17 +199,19 @@ def test_case_4_all_providers_fail_general_error(sample_request):
     assert "All providers failed" in response.degradationReason
 
 
-# CASE 5: Quota exhausted everywhere -> QUOTA_EXCEEDED
-def test_case_5_quota_exhausted_everywhere(sample_request):
-    gemini = MockProvider("gemini", "Google Gemini", "gemini-3.6-flash", "REAL_GEMINI", fails=True, is_quota=True)
+# CASE 6: Quota exhausted everywhere -> QUOTA_EXCEEDED
+def test_case_6_quota_exhausted_everywhere(sample_request):
+    nvidia = MockProvider("nvidia", "NVIDIA", "meta/llama-3.2-11b-vision-instruct", "REAL_NVIDIA", fails=True, is_quota=True)
+    openrouter = MockProvider("openrouter", "OpenRouter", "meta-llama/llama-3.3-70b-instruct", "REAL_OPENROUTER", fails=True, is_quota=True)
     openai = MockProvider("openai", "OpenAI", "gpt-4o-mini", "REAL_OPENAI", fails=True, is_quota=True)
-    openrouter = MockProvider("openrouter", "OpenRouter", "claude-3.5-sonnet", "REAL_OPENROUTER", fails=True, is_quota=True)
+    gemini = MockProvider("gemini", "Gemini", "gemini-3.6-flash", "REAL_GEMINI", fails=True, is_quota=True)
 
     manager = ProviderManager(
-        primary_provider_name="gemini",
-        gemini_provider=gemini,
-        openai_provider=openai,
+        primary_provider_name="nvidia",
+        nvidia_provider=nvidia,
         openrouter_provider=openrouter,
+        openai_provider=openai,
+        gemini_provider=gemini,
     )
 
     response = asyncio.run(manager.analyze("security-analysis", sample_request))

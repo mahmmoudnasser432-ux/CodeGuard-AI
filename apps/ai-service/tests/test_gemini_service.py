@@ -121,13 +121,14 @@ async def test_analyze_quota_exceeded_handling(sample_request):
     mock_model = MagicMock()
     mock_model.generate_content = MagicMock(side_effect=ResourceExhausted("429 ResourceExhausted: Quota exceeded for metric"))
     
-    with patch("google.generativeai.GenerativeModel", return_value=mock_model):
-        result = await service.analyze("security-analysis", sample_request)
-        assert isinstance(result, AnalysisResponse)
-        assert result.source == "QUOTA_EXCEEDED"
-        assert result.provider == "deterministic-rule-engine"
-        assert "quota" in result.degradationReason.lower()
-        assert service.circuit_breaker.state == CircuitState.OPEN
+    with patch.dict("os.environ", {"OPENAI_API_KEY": "", "OPENROUTER_API_KEY": "", "NVIDIA_API_KEY": ""}):
+        with patch("google.generativeai.GenerativeModel", return_value=mock_model):
+            result = await service.analyze("security-analysis", sample_request)
+            assert isinstance(result, AnalysisResponse)
+            assert result.source == "QUOTA_EXCEEDED"
+            assert result.provider == "deterministic-rule-engine"
+            assert "quota" in result.degradationReason.lower()
+            assert service.circuit_breaker.state == CircuitState.OPEN
 
 
 @pytest.mark.anyio
@@ -137,9 +138,11 @@ async def test_circuit_breaker_fast_fallback(sample_request):
     service.circuit_breaker.force_open("Manual trip for test")
     assert not service.circuit_breaker.can_execute()
 
-    result = await service.analyze("security-analysis", sample_request)
-    assert result.source == "QUOTA_EXCEEDED"
-    assert "quota" in result.degradationReason.lower()
+    with patch.dict("os.environ", {"OPENAI_API_KEY": "", "OPENROUTER_API_KEY": "", "NVIDIA_API_KEY": ""}):
+        result = await service.analyze("security-analysis", sample_request)
+        assert result.source == "QUOTA_EXCEEDED"
+        assert "quota" in result.degradationReason.lower()
+
 
 
 @pytest.mark.anyio

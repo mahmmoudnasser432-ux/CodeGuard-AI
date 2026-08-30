@@ -81,7 +81,7 @@ def test_interview_generator_endpoint():
 
 def test_validation_error_on_invalid_language():
     payload = {
-        "language": "unsupported_lang",
+        "language": "",
         "code": "print('hello')"
     }
     response = client.post("/security-analysis", json=payload)

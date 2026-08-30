@@ -6,6 +6,7 @@ from app.providers.base import AIProvider, AIProviderException
 from app.providers.gemini_provider import GeminiProvider
 from app.providers.openai_provider import OpenAIProvider
 from app.providers.openrouter_provider import OpenRouterProvider
+from app.providers.nvidia_provider import NvidiaProvider
 from app.providers.fallback_provider import DeterministicFallbackProvider
 
 logger = logging.getLogger("codeguard.providers.manager")
@@ -23,35 +24,50 @@ class ProviderManager:
         gemini_provider: Optional[AIProvider] = None,
         openai_provider: Optional[AIProvider] = None,
         openrouter_provider: Optional[AIProvider] = None,
+        nvidia_provider: Optional[AIProvider] = None,
         fallback_provider: Optional[AIProvider] = None,
     ):
         self._explicit_primary_name = primary_provider_name
         self.gemini = gemini_provider or GeminiProvider()
         self.openai = openai_provider or OpenAIProvider()
         self.openrouter = openrouter_provider or OpenRouterProvider()
+        self.nvidia = nvidia_provider or NvidiaProvider()
         self.fallback = fallback_provider or DeterministicFallbackProvider()
 
         self.providers: Dict[str, AIProvider] = {
             "gemini": self.gemini,
             "openai": self.openai,
             "openrouter": self.openrouter,
+            "nvidia": self.nvidia,
             "fallback": self.fallback,
         }
 
     @property
     def primary_name(self) -> str:
-        name = self._explicit_primary_name or os.getenv("AI_PROVIDER", "gemini")
+        name = self._explicit_primary_name or os.getenv("AI_PROVIDER", "nvidia")
         return name.lower().strip()
 
     def get_failover_chain(self) -> List[AIProvider]:
-        """Construct the ordered list of providers to attempt."""
+        """Construct the ordered list of providers to attempt.
+
+        Target Provider Order (primary = nvidia):
+            1. NVIDIA NIM (PRIMARY)
+            2. OpenRouter (SECONDARY)
+            3. OpenAI (TERTIARY)
+            4. Gemini (QUATERNARY)
+            5. Deterministic Fallback
+        """
         order_map = {
-            "gemini": [self.gemini, self.openai, self.openrouter],
-            "openai": [self.openai, self.gemini, self.openrouter],
-            "openrouter": [self.openrouter, self.gemini, self.openai],
+            "nvidia":     [self.nvidia,     self.openrouter, self.openai, self.gemini],
+            "openrouter": [self.openrouter, self.nvidia,     self.openai, self.gemini],
+            "openai":     [self.openai,     self.nvidia,     self.openrouter, self.gemini],
+            "gemini":     [self.gemini,     self.nvidia,     self.openrouter, self.openai],
         }
 
-        chain = order_map.get(self.primary_name, [self.gemini, self.openai, self.openrouter])
+        chain = order_map.get(
+            self.primary_name,
+            [self.nvidia, self.openrouter, self.openai, self.gemini],
+        )
         return [*chain, self.fallback]
 
     async def analyze(self, endpoint: str, request: AnalysisRequest) -> AnalysisResponse:
@@ -76,10 +92,12 @@ class ProviderManager:
                 attempted_remote_count += 1
 
             try:
+                logger.info(f"Executing analysis with provider: {provider.display_name}")
                 logger.info(
                     f"Executing analysis '{endpoint}' with provider: {provider.display_name} ({provider.model_name})"
                 )
                 response = await provider.analyze(endpoint, request)
+
 
                 # If failover occurred before reaching this provider, annotate degradation
                 if failures:

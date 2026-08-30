@@ -24,20 +24,23 @@ logger = setup_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Phase 3: Startup Diagnostics
+    # Phase 3: Startup Diagnostics & Environment Validation
     gemini_conf = provider_manager.gemini.is_configured
     openai_conf = provider_manager.openai.is_configured
     openrouter_conf = provider_manager.openrouter.is_configured
+    nvidia_conf = provider_manager.nvidia.is_configured
     active_prov = provider_manager.primary_name
 
     startup_diagnostics = {
-        "gemini_configured": gemini_conf,
-        "openai_configured": openai_conf,
-        "openrouter_configured": openrouter_conf,
         "active_provider": active_prov,
-        "gemini_model": provider_manager.gemini.model_name,
-        "openai_model": provider_manager.openai.model_name,
+        "nvidia_configured": nvidia_conf,
+        "nvidia_model": provider_manager.nvidia.model_name,
+        "openrouter_configured": openrouter_conf,
         "openrouter_model": provider_manager.openrouter.model_name,
+        "openai_configured": openai_conf,
+        "openai_model": provider_manager.openai.model_name,
+        "gemini_configured": gemini_conf,
+        "gemini_model": provider_manager.gemini.model_name,
     }
 
     # Structured and human-readable logging
@@ -46,15 +49,20 @@ async def lifespan(app: FastAPI):
     print("\n" + "=" * 64)
     print("CodeGuard AI Service — Provider Configuration Status:")
     print(f"  Active Primary Provider : {active_prov.upper()}")
-    print(f"  Gemini                  : {'CONFIGURED (' + provider_manager.gemini.model_name + ')' if gemini_conf else 'NOT CONFIGURED'}")
-    print(f"  OpenAI                  : {'CONFIGURED (' + provider_manager.openai.model_name + ')' if openai_conf else 'NOT CONFIGURED'}")
+    print(f"  NVIDIA NIM              : {'CONFIGURED (' + provider_manager.nvidia.model_name + ')' if nvidia_conf else 'NOT CONFIGURED'}")
     print(f"  OpenRouter              : {'CONFIGURED (' + provider_manager.openrouter.model_name + ')' if openrouter_conf else 'NOT CONFIGURED'}")
+    print(f"  OpenAI                  : {'CONFIGURED (' + provider_manager.openai.model_name + ')' if openai_conf else 'NOT CONFIGURED'}")
+    print(f"  Gemini                  : {'CONFIGURED (' + provider_manager.gemini.model_name + ')' if gemini_conf else 'NOT CONFIGURED'}")
     print("  Deterministic Fallback  : ALWAYS AVAILABLE (ast-rules-v1)")
+    print("\nProvider Chain:")
+    for idx, provider in enumerate(provider_manager.get_failover_chain(), start=1):
+        print(f"{idx}. {provider.display_name}")
     print("=" * 64 + "\n")
 
     logger.info("CodeGuard AI service startup complete")
     yield
     logger.info("CodeGuard AI service shutdown")
+
 
 
 app = FastAPI(

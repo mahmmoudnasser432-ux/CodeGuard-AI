@@ -9,9 +9,9 @@ class RepositoryContext(BaseModel):
 
 
 class AnalysisRequest(BaseModel):
-    language: Literal["javascript", "typescript", "python", "java", "cpp", "csharp", "php"]
+    language: str = Field(min_length=1, max_length=50)
     code: str = Field(min_length=1, max_length=200_000)
-    mode: Literal["beginner", "intermediate", "expert"] = "expert"
+    mode: str = Field(default="expert", min_length=1, max_length=50)
     repositoryContext: RepositoryContext | None = None
 
 
@@ -42,6 +42,7 @@ class AnalysisResponse(BaseModel):
     source: Literal[
         "REAL_GEMINI",
         "REAL_OPENAI",
+        "REAL_NVIDIA",
         "REAL_OPENROUTER",
         "FALLBACK_ANALYZER",
         "QUOTA_EXCEEDED",
@@ -49,6 +50,7 @@ class AnalysisResponse(BaseModel):
     analysisSource: Literal[
         "REAL_GEMINI",
         "REAL_OPENAI",
+        "REAL_NVIDIA",
         "REAL_OPENROUTER",
         "FALLBACK_ANALYZER",
         "QUOTA_EXCEEDED",

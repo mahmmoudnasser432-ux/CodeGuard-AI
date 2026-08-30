@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 export const codeAnalysisRequestSchema = z.object({
-  language: z.enum(["javascript", "typescript", "python", "java", "cpp", "csharp", "php"]),
+  language: z.string().min(1).max(50),
   code: z.string().min(1).max(200_000),
-  mode: z.enum(["beginner", "intermediate", "expert"]).default("expert"),
+  mode: z.enum(["beginner", "intermediate", "expert", "standard"]).default("expert"),
   repositoryContext: z
     .object({
       name: z.string().max(255),

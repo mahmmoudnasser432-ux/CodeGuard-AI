@@ -161,22 +161,24 @@ async def test_gemini_429_quota_exceeded_and_circuit_tripping(sample_request):
     mock_model = MagicMock()
     mock_model.generate_content = MagicMock(side_effect=ResourceExhausted("429 ResourceExhausted: Quota exceeded"))
 
-    with patch("google.generativeai.GenerativeModel", return_value=mock_model):
-        # 1st 429 call
-        res1 = await service.analyze("security-analysis", sample_request)
-        assert res1.source == "QUOTA_EXCEEDED"
-        assert res1.provider == "deterministic-rule-engine"
-        assert "quota" in res1.degradationReason.lower()
+    with patch.dict("os.environ", {"OPENAI_API_KEY": "", "OPENROUTER_API_KEY": "", "NVIDIA_API_KEY": ""}):
+        with patch("google.generativeai.GenerativeModel", return_value=mock_model):
+            # 1st 429 call
+            res1 = await service.analyze("security-analysis", sample_request)
+            assert res1.source == "QUOTA_EXCEEDED"
+            assert res1.provider == "deterministic-rule-engine"
+            assert "quota" in res1.degradationReason.lower()
 
-        # 2nd 429 call -> Trips circuit breaker to OPEN
-        res2 = await service.analyze("security-analysis", sample_request)
-        assert res2.source == "QUOTA_EXCEEDED"
-        assert service.circuit_breaker.state == CircuitState.OPEN
+            # 2nd 429 call -> Trips circuit breaker to OPEN
+            res2 = await service.analyze("security-analysis", sample_request)
+            assert res2.source == "QUOTA_EXCEEDED"
+            assert service.circuit_breaker.state == CircuitState.OPEN
 
-        # 3rd call -> Fast fallback by circuit breaker without calling model
-        res3 = await service.analyze("security-analysis", sample_request)
-        assert res3.source == "QUOTA_EXCEEDED"
-        assert "quota" in res3.degradationReason.lower()
+            # 3rd call -> Fast fallback by circuit breaker without calling model
+            res3 = await service.analyze("security-analysis", sample_request)
+            assert res3.source == "QUOTA_EXCEEDED"
+            assert "quota" in res3.degradationReason.lower()
+
 
 
 # 6. Endpoints Integration Tests (Health & Metrics)

@@ -102,7 +102,7 @@ class OpenAIProvider(AIProvider):
                     generatedMarkdown=parsed.get("generatedMarkdown"),
                     source="REAL_OPENAI",
                     analysisSource="REAL_OPENAI",
-                    provider="openai",
+                    provider="OpenAI",
                     model=self.model_name,
                 )
 

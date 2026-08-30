@@ -1,20 +1,8 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Navbar from "@/components/navbar";
-import Footer from "@/components/footer";
 import { AuthProvider } from "@/lib/auth-context";
 import { ErrorBoundary } from "@/components/error-boundary";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import AppChrome from "@/components/app-chrome";
 
 export const metadata: Metadata = {
   title: "CodeGuard AI - Enterprise Code Security & Analysis",
@@ -27,16 +15,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
+    <html lang="en" className="h-full antialiased dark">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,300..800;1,300..800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
       <body className="min-h-full flex flex-col bg-background text-foreground transition-colors duration-200">
         <AuthProvider>
           <ErrorBoundary>
-            <Navbar />
-            <main className="flex-grow">{children}</main>
-            <Footer />
+            <AppChrome>{children}</AppChrome>
           </ErrorBoundary>
         </AuthProvider>
       </body>
