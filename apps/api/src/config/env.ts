@@ -37,8 +37,14 @@ const envSchema = z.object({
   EMAIL_PASSWORD: z.string().optional(),
   EMAIL_FROM: z.string().default("noreply@codeguardai.com"),
   EMAIL_FROM_NAME: z.string().default("CodeGuard AI"),
-  EMAIL_SECURE: z.boolean().default(false),
-  EMAIL_TLS: z.boolean().default(false),
+  EMAIL_SECURE: z.preprocess(
+    (val) => (typeof val === "string" ? val.toLowerCase() === "true" || val === "1" : Boolean(val)),
+    z.boolean()
+  ).default(false),
+  EMAIL_TLS: z.preprocess(
+    (val) => (typeof val === "string" ? val.toLowerCase() === "true" || val === "1" : Boolean(val)),
+    z.boolean()
+  ).default(false),
 });
 
 const parsed = envSchema.parse(process.env);

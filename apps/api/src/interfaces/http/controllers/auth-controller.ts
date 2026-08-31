@@ -71,7 +71,7 @@ export function authController(
       const verificationToken = await authService.createEmailVerificationToken(user.id);
 
       // Send verification email
-      if (env.NODE_ENV !== "test") { // Don't send emails during tests
+      if (env.NODE_ENV !== "test") {
         await emailService.sendVerificationEmail(user.email, verificationToken);
       }
 

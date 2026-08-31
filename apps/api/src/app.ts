@@ -14,6 +14,7 @@ import { SqlPasswordResetTokenRepository } from "./infrastructure/repositories/s
 import { SqlEmailVerificationTokenRepository } from "./infrastructure/repositories/sql-email-verification-token-repository.js";
 import { AuthService } from "./application/services/auth-service.js";
 import { EmailService } from "./application/services/email-service.js";
+import { sqlPool } from "./infrastructure/database/sqlserver.js";
 import { env } from "./config/env.js";
 
 const startTime = Date.now();
@@ -71,11 +72,22 @@ export function createApp() {
       aiServiceStatus = "unreachable";
     }
 
+    let databaseStatus = "unknown";
+    try {
+      if (!sqlPool.connected && !sqlPool.connecting) {
+        await sqlPool.connect();
+      }
+      databaseStatus = sqlPool.connected ? "healthy" : "disconnected";
+    } catch {
+      databaseStatus = "unreachable";
+    }
+
     res.json({
       status: "ready",
       service: "codeguard-api",
       dependencies: {
         aiService: aiServiceStatus,
+        database: databaseStatus,
       },
       timestamp: new Date().toISOString(),
     });

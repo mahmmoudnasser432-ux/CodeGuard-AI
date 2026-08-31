@@ -12,7 +12,7 @@ export class EmailService {
   private transporter: Transporter;
 
   constructor() {
-    this.transporter = createTransport({
+    const transportConfig: any = {
       host: env.EMAIL_HOST,
       port: env.EMAIL_PORT,
       secure: env.EMAIL_SECURE, // true for 465, false for other ports
@@ -20,11 +20,16 @@ export class EmailService {
         // do not fail on invalid certs
         rejectUnauthorized: env.EMAIL_TLS ? false : true,
       },
-      auth: {
+    };
+
+    if (env.EMAIL_USER && env.EMAIL_PASSWORD) {
+      transportConfig.auth = {
         user: env.EMAIL_USER,
         pass: env.EMAIL_PASSWORD,
-      },
-    });
+      };
+    }
+
+    this.transporter = createTransport(transportConfig);
   }
 
   /**

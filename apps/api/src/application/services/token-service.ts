@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import { createHash } from "crypto";
 import { env } from "../../config/env.js";
 import { User } from "../../domain/entities/user.js";
 import { Session } from "../../domain/entities/session.js";
@@ -120,9 +121,8 @@ export class TokenService {
     const tokenHash = await this.hashRefreshToken(plainToken);
 
     // Create hashes for user agent and IP (for security)
-    const crypto = require('crypto');
-    const userAgentHash = userAgent ? crypto.createHash('sha256').update(userAgent).digest('hex') : undefined;
-    const ipHash = ipAddress ? crypto.createHash('sha256').update(ipAddress).digest('hex') : undefined;
+    const userAgentHash = userAgent ? createHash('sha256').update(userAgent).digest('hex') : undefined;
+    const ipHash = ipAddress ? createHash('sha256').update(ipAddress).digest('hex') : undefined;
 
     // Calculate expiration from config
     const refreshTokenExpiresIn = env.JWT_REFRESH_EXPIRES_IN ?? "7d";

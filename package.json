@@ -29,10 +29,6 @@
     "npm": ">=10.0.0"
   },
   "devDependencies": {
-    "@types/uuid": "^10.0.0",
     "concurrently": "^10.0.5"
-  },
-  "dependencies": {
-    "uuid": "^14.0.2"
   }
 }

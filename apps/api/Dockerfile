@@ -6,7 +6,7 @@ WORKDIR /app
 # Install build dependencies
 COPY package*.json ./
 COPY apps/api/package*.json ./apps/api/
-COPY packages ./packages
+COPY apps/web/package*.json ./apps/web/
 
 # Install dependencies across workspaces
 RUN npm ci
@@ -26,12 +26,28 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=5000
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+# Install dumb-init for proper signal handling with multi-mirror fallback and retries
+RUN set -eux; \
+    installed=0; \
+    v=$(cut -d'.' -f1,2 /etc/alpine-release); \
+    for mirror in \
+        https://dl-cdn.alpinelinux.org/alpine/ \
+        https://uk.alpinelinux.org/alpine/ \
+        https://dl-4.alpinelinux.org/alpine/ \
+        https://mirrors.edge.kernel.org/alpine/ ; do \
+      printf "%s\n%s\n" "${mirror}v${v}/main" "${mirror}v${v}/community" > /etc/apk/repositories; \
+      if apk add --no-cache dumb-init; then \
+        installed=1; \
+        break; \
+      fi; \
+      sleep 2; \
+    done; \
+    [ "$installed" -eq 1 ] && [ -x /usr/bin/dumb-init ]
 
 # Copy package configurations
 COPY package*.json ./
 COPY apps/api/package*.json ./apps/api/
+COPY apps/web/package*.json ./apps/web/
 
 # Install only production dependencies
 RUN npm ci --omit=dev --workspace=@codeguard/api
@@ -46,4 +62,4 @@ WORKDIR /app/apps/api
 EXPOSE 5000
 
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/server.js"]

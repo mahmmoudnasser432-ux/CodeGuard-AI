@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { randomBytes, createHash } from "crypto";
 import { env } from "../../config/env.js";
 import type { User, UserRole } from "../../domain/entities/user.js";
 import { TokenService } from "./token-service.js";
@@ -227,12 +228,11 @@ export class AuthService {
 
   async createPasswordResetToken(userId: string): Promise<string> {
     // Generate a random token
-    const buffer = require('crypto').randomBytes(32);
+    const buffer = randomBytes(32);
     const plainToken = buffer.toString('hex');
 
     // Hash the token for storage using SHA-256 (deterministic)
-    const tokenHash = require('crypto')
-      .createHash('sha256')
+    const tokenHash = createHash('sha256')
       .update(plainToken)
       .digest('hex');
 
@@ -266,8 +266,7 @@ export class AuthService {
 
   async validatePasswordResetToken(token: string): Promise<{ userId: string; tokenId: string } | null> {
     // Hash the incoming token to find it in database using SHA-256 (deterministic)
-    const tokenHash = require('crypto')
-      .createHash('sha256')
+    const tokenHash = createHash('sha256')
       .update(token)
       .digest('hex');
 
@@ -297,12 +296,11 @@ export class AuthService {
 
   async createEmailVerificationToken(userId: string): Promise<string> {
     // Generate a random token
-    const buffer = require('crypto').randomBytes(32);
+    const buffer = randomBytes(32);
     const plainToken = buffer.toString('hex');
 
     // Hash the token for storage using SHA-256 (deterministic)
-    const tokenHash = require('crypto')
-      .createHash('sha256')
+    const tokenHash = createHash('sha256')
       .update(plainToken)
       .digest('hex');
 
@@ -333,8 +331,7 @@ export class AuthService {
 
   async validateEmailVerificationToken(token: string): Promise<{ userId: string; tokenId: string } | null> {
     // Hash the incoming token to find it in database using SHA-256 (deterministic)
-    const tokenHash = require('crypto')
-      .createHash('sha256')
+    const tokenHash = createHash('sha256')
       .update(token)
       .digest('hex');
 

@@ -9,7 +9,7 @@ export const sqlPool = new sql.ConnectionPool({
   password: env.SQLSERVER_PASSWORD,
   options: {
     encrypt: true,
-    trustServerCertificate: env.NODE_ENV !== "production"
+    trustServerCertificate: true
     // trustedConnection: false // Using SQL Authentication instead of Windows Integrated Security
   },
   pool: {
