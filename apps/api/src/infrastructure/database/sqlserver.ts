@@ -1,20 +1,30 @@
 import sql from "mssql";
 import { env } from "../../config/env.js";
 
-export const sqlPool = new sql.ConnectionPool({
-  server: env.SQLSERVER_HOST,
-  port: env.SQLSERVER_PORT,
-  database: env.SQLSERVER_DATABASE,
-  user: env.SQLSERVER_USER,
-  password: env.SQLSERVER_PASSWORD,
-  options: {
-    encrypt: true,
-    trustServerCertificate: true
-    // trustedConnection: false // Using SQL Authentication instead of Windows Integrated Security
-  },
-  pool: {
-    max: 20,
-    min: 0,
-    idleTimeoutMillis: 30_000
-  }
-});
+/**
+ * Builds a validated mssql connection pool configuration object from environment settings.
+ */
+export function createPoolConfig(envConfig: typeof env): sql.config {
+  return {
+    server: envConfig.SQLSERVER_HOST,
+    port: envConfig.SQLSERVER_PORT,
+    database: envConfig.SQLSERVER_DATABASE,
+    user: envConfig.SQLSERVER_USER,
+    password: envConfig.SQLSERVER_PASSWORD,
+    connectionTimeout: envConfig.SQLSERVER_CONNECTION_TIMEOUT,
+    requestTimeout: envConfig.SQLSERVER_REQUEST_TIMEOUT,
+    options: {
+      encrypt: envConfig.SQLSERVER_ENCRYPT,
+      trustServerCertificate: envConfig.SQLSERVER_TRUST_SERVER_CERTIFICATE,
+      connectTimeout: envConfig.SQLSERVER_CONNECTION_TIMEOUT,
+      requestTimeout: envConfig.SQLSERVER_REQUEST_TIMEOUT,
+    },
+    pool: {
+      max: envConfig.SQLSERVER_POOL_MAX,
+      min: envConfig.SQLSERVER_POOL_MIN,
+      idleTimeoutMillis: envConfig.SQLSERVER_POOL_IDLE_TIMEOUT,
+    },
+  };
+}
+
+export const sqlPool = new sql.ConnectionPool(createPoolConfig(env));

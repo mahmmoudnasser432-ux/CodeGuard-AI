@@ -33,6 +33,19 @@ export const envSchema = z
     SQLSERVER_DATABASE: z.string().default("CodeGuardAI"),
     SQLSERVER_USER: z.string().default("sa"),
     SQLSERVER_PASSWORD: z.string().default(""),
+    SQLSERVER_ENCRYPT: z.preprocess(
+      (val) => (typeof val === "string" ? val.toLowerCase() === "true" || val === "1" : val === undefined ? true : Boolean(val)),
+      z.boolean()
+    ).default(true),
+    SQLSERVER_TRUST_SERVER_CERTIFICATE: z.preprocess(
+      (val) => (typeof val === "string" ? val.toLowerCase() === "true" || val === "1" : Boolean(val)),
+      z.boolean()
+    ).optional(),
+    SQLSERVER_CONNECTION_TIMEOUT: z.coerce.number().int().positive().default(15000),
+    SQLSERVER_REQUEST_TIMEOUT: z.coerce.number().int().positive().default(30000),
+    SQLSERVER_POOL_MIN: z.coerce.number().int().nonnegative().optional(),
+    SQLSERVER_POOL_MAX: z.coerce.number().int().positive().default(20),
+    SQLSERVER_POOL_IDLE_TIMEOUT: z.coerce.number().int().positive().default(30000),
     REDIS_URL: z.string().default("redis://localhost:6379"),
     // Email configuration
     EMAIL_HOST: z.string().default("localhost"),
@@ -102,6 +115,33 @@ export const envSchema = z
           message: "JWT_REFRESH_SECRET in production must not use a predictable development default secret.",
         });
       }
+
+      // 4. SQLSERVER_PASSWORD validation in production
+      if (!data.SQLSERVER_PASSWORD || data.SQLSERVER_PASSWORD.trim() === "") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["SQLSERVER_PASSWORD"],
+          message: "SQLSERVER_PASSWORD is required in production.",
+        });
+      }
+
+      // 5. SQLSERVER_ENCRYPT validation in production
+      if (data.SQLSERVER_ENCRYPT !== true) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["SQLSERVER_ENCRYPT"],
+          message: "SQLSERVER_ENCRYPT must be true in production to ensure encrypted database transit.",
+        });
+      }
+
+      // 6. SQLSERVER_TRUST_SERVER_CERTIFICATE validation in production
+      if (data.SQLSERVER_TRUST_SERVER_CERTIFICATE === true) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["SQLSERVER_TRUST_SERVER_CERTIFICATE"],
+          message: "SQLSERVER_TRUST_SERVER_CERTIFICATE must be false in production. Disabling TLS certificate validation in production is not permitted.",
+        });
+      }
     }
   });
 
@@ -111,12 +151,25 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv | Record<string, string | und
   const effectiveApiBaseUrl = parsed.API_URL || parsed.API_BASE_URL || "http://localhost:5000";
   const effectiveAccessSecret = parsed.JWT_SECRET || parsed.JWT_ACCESS_SECRET || DEV_DEFAULT_ACCESS_SECRET;
   const effectiveRefreshSecret = parsed.JWT_REFRESH_SECRET || DEV_DEFAULT_REFRESH_SECRET;
+  const isProd = parsed.NODE_ENV === "production";
+
+  const effectiveTrustServerCert =
+    parsed.SQLSERVER_TRUST_SERVER_CERTIFICATE !== undefined
+      ? parsed.SQLSERVER_TRUST_SERVER_CERTIFICATE
+      : !isProd; // false in production (strict TLS), true in development/test
+
+  const effectivePoolMin =
+    parsed.SQLSERVER_POOL_MIN !== undefined
+      ? parsed.SQLSERVER_POOL_MIN
+      : isProd ? 2 : 0;
 
   return {
     ...parsed,
     API_BASE_URL: effectiveApiBaseUrl,
     JWT_ACCESS_SECRET: effectiveAccessSecret,
     JWT_REFRESH_SECRET: effectiveRefreshSecret,
+    SQLSERVER_TRUST_SERVER_CERTIFICATE: effectiveTrustServerCert,
+    SQLSERVER_POOL_MIN: effectivePoolMin,
   };
 }
 

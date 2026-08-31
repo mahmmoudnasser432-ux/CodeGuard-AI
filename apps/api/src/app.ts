@@ -77,7 +77,12 @@ export function createApp() {
       if (!sqlPool.connected && !sqlPool.connecting) {
         await sqlPool.connect();
       }
-      databaseStatus = sqlPool.connected ? "healthy" : "disconnected";
+      if (sqlPool.connected) {
+        const ping = await sqlPool.request().query("SELECT 1 AS isReady");
+        databaseStatus = ping.recordset?.[0]?.isReady === 1 ? "healthy" : "degraded";
+      } else {
+        databaseStatus = "disconnected";
+      }
     } catch {
       databaseStatus = "unreachable";
     }
