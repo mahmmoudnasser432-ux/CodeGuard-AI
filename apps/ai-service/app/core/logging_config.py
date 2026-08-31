@@ -1,21 +1,60 @@
 import json
 import logging
 import os
+import re
 import sys
 import time
 from typing import Any, Dict
 
 class SensitiveDataFilter(logging.Filter):
     """Filter that masks API keys and credentials from log messages."""
+
+    PATTERNS = [
+        (re.compile(r'AIza[0-9A-Za-z\-_]{16,}'), '[REDACTED_API_KEY]'),
+        (re.compile(r'nvapi-[0-9A-Za-z\-_]{16,}'), '[REDACTED_NVIDIA_KEY]'),
+        (re.compile(r'sk-or-[0-9A-Za-z\-_]{16,}'), '[REDACTED_OPENROUTER_KEY]'),
+        (re.compile(r'sk-proj-[0-9A-Za-z\-_]{16,}'), '[REDACTED_OPENAI_KEY]'),
+        (re.compile(r'sk-[0-9A-Za-z\-_]{16,}'), '[REDACTED_OPENAI_KEY]'),
+    ]
+
+    def _redact_text(self, text: str) -> str:
+        # Also redact configured environment variable values if they appear in text
+        env_mappings = [
+            ("GEMINI_API_KEY", "[REDACTED_GEMINI_KEY]"),
+            ("NVIDIA_API_KEY", "[REDACTED_NVIDIA_KEY]"),
+            ("OPENROUTER_API_KEY", "[REDACTED_OPENROUTER_KEY]"),
+            ("OPENAI_API_KEY", "[REDACTED_OPENAI_KEY]"),
+        ]
+        for env_var, placeholder in env_mappings:
+            val = os.getenv(env_var)
+            if val and len(val) >= 8 and val in text:
+                text = text.replace(val, placeholder)
+
+        for pattern, replacement in self.PATTERNS:
+            text = pattern.sub(replacement, text)
+        return text
+
+    def _redact_value(self, val: Any) -> Any:
+        if isinstance(val, str):
+            return self._redact_text(val)
+        if isinstance(val, dict):
+            return {k: self._redact_value(v) for k, v in val.items()}
+        if isinstance(val, (list, tuple)):
+            cleaned = [self._redact_value(v) for v in val]
+            return tuple(cleaned) if isinstance(val, tuple) else cleaned
+        return val
+
     def filter(self, record: logging.LogRecord) -> bool:
-        gemini_key = os.getenv("GEMINI_API_KEY")
         if isinstance(record.msg, str):
-            if gemini_key and gemini_key in record.msg:
-                record.msg = record.msg.replace(gemini_key, "[REDACTED_GEMINI_KEY]")
-            # Mask potential key patterns
-            if "AIza" in record.msg:
-                import re
-                record.msg = re.sub(r'AIza[0-9A-Za-z\-_]{35}', '[REDACTED_API_KEY]', record.msg)
+            record.msg = self._redact_text(record.msg)
+
+        if record.args:
+            if isinstance(record.args, dict):
+                record.args = {k: self._redact_value(v) for k, v in record.args.items()}
+            elif isinstance(record.args, (list, tuple)):
+                clean_args = [self._redact_value(v) for v in record.args]
+                record.args = tuple(clean_args) if isinstance(record.args, tuple) else clean_args
+
         return True
 
 

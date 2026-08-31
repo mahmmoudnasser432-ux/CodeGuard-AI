@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { env } from "../../config/env.js";
 import { User } from "../../domain/entities/user.js";
 import { Session } from "../../domain/entities/session.js";
@@ -11,12 +11,7 @@ export class TokenService {
    * Generate a unique JWT ID (JTI)
    */
   static generateJti(): string {
-    // Using UUID v4 for JTI
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
+    return randomUUID();
   }
 
   /**

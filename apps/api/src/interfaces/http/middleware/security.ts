@@ -18,25 +18,29 @@ export const securityHeaders = helmet({
   crossOriginEmbedderPolicy: false,
 });
 
-function isAllowedOrigin(origin: string | undefined): boolean {
+export function isAllowedOrigin(origin: string | undefined, currentEnv = env): boolean {
   if (!origin) return true; // Allow non-browser server-to-server or curl requests
 
-  // Development localhost
-  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+  const isProd = currentEnv.NODE_ENV === "production";
+
+  // In development / test, allow arbitrary localhost / 127.0.0.1
+  if (!isProd) {
+    if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      return true;
+    }
+  }
+
+  // Explicitly configured frontend URL (e.g. https://codeguard.ai, or http://localhost:3000 in local Docker)
+  if (currentEnv.FRONTEND_URL && origin === currentEnv.FRONTEND_URL) {
     return true;
   }
 
-  // Configured frontend URL or CORS origin
-  if (env.FRONTEND_URL && origin === env.FRONTEND_URL) {
-    return true;
-  }
-  if (env.CORS_ORIGIN && origin === env.CORS_ORIGIN) {
-    return true;
-  }
-
-  // Vercel deployment preview and production domains
-  if (/^https:\/\/.*\.vercel\.app$/.test(origin) || /^https:\/\/codeguard.*\.vercel\.app$/.test(origin)) {
-    return true;
+  // Explicitly configured CORS origin(s) (single or comma-separated)
+  if (currentEnv.CORS_ORIGIN) {
+    const allowedList = currentEnv.CORS_ORIGIN.split(",").map((o) => o.trim());
+    if (allowedList.includes(origin)) {
+      return true;
+    }
   }
 
   return false;
