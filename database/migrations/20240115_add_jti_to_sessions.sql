@@ -1,0 +1,4 @@
+IF COL_LENGTH(N'dbo.Sessions', N'Jti') IS NULL
+BEGIN
+    ALTER TABLE dbo.Sessions ADD Jti UNIQUEIDENTIFIER NULL;
+END;

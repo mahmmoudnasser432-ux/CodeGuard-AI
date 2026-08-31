@@ -55,6 +55,9 @@ RUN npm ci --omit=dev --workspace=@codeguard/api
 # Copy compiled JavaScript output
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
+# Copy database migrations for production migration runner
+COPY database/migrations /app/database/migrations
+
 # Use non-root node user for security
 USER node
 

@@ -14,7 +14,7 @@
     "test:nvidia": "python -m pytest ../ai-service/tests/test_nvidia_provider.py -v",
     "test:providers": "python -m pytest ../ai-service/tests/test_nvidia_provider.py ../ai-service/tests/test_failover_scenarios.py ../ai-service/tests/test_provider_abstraction.py -v",
     "migrate": "tsx src/migration-runner.ts",
-
+    "migrate:prod": "node dist/migration-runner.js",
     "seed": "tsx src/seed-runner.ts"
   },
   "dependencies": {
