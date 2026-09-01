@@ -100,13 +100,11 @@ export interface AuthUser {
 
 export interface AuthResponse {
   accessToken: string;
-  refreshToken: string;
   user: AuthUser;
 }
 
-// Token Storage Utilities
+// Token Storage Utilities (Access Token & User in localStorage; Refresh Token in HttpOnly cookie)
 export const TOKEN_KEY = "codeguard_access_token";
-export const REFRESH_TOKEN_KEY = "codeguard_refresh_token";
 export const USER_KEY = "codeguard_user";
 
 export function getStoredAccessToken(): string | null {
@@ -114,22 +112,16 @@ export function getStoredAccessToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
-export function getStoredRefreshToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
-}
-
-export function setStoredTokens(accessToken: string, refreshToken?: string, user?: AuthUser) {
+export function setStoredTokens(accessToken: string, user?: AuthUser) {
   if (typeof window === "undefined") return;
   localStorage.setItem(TOKEN_KEY, accessToken);
-  if (refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
   if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
 export function clearStoredTokens() {
   if (typeof window === "undefined") return;
   localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem("codeguard_refresh_token"); // Clean up legacy key
   localStorage.removeItem(USER_KEY);
 }
 
@@ -144,7 +136,7 @@ export function getStoredUser(): AuthUser | null {
   }
 }
 
-// Low-level fetch wrapper with Auth token and Refresh Token interceptor
+// Low-level fetch wrapper with Auth token and HttpOnly Refresh Token interceptor
 export async function authenticatedFetch(
   endpoint: string,
   options: RequestInit = {}
@@ -157,30 +149,27 @@ export async function authenticatedFetch(
   }
 
   const url = endpoint.startsWith("http") ? endpoint : `${API_BASE_URL}${endpoint}`;
-  let response = await fetch(url, { ...options, headers });
+  let response = await fetch(url, { ...options, headers, credentials: options.credentials || "include" });
 
-  // Handle 401 and try refresh
-  if (response.status === 401) {
-    const refreshToken = getStoredRefreshToken();
-    if (refreshToken && !endpoint.includes("/api/auth/")) {
-      try {
-        const refreshRes = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refreshToken }),
-        });
+  // Handle 401 and try refresh using HttpOnly cookie
+  if (response.status === 401 && !endpoint.includes("/api/auth/")) {
+    try {
+      const refreshRes = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
 
-        if (refreshRes.ok) {
-          const data = await refreshRes.json();
-          setStoredTokens(data.accessToken, data.refreshToken);
-          headers.set("Authorization", `Bearer ${data.accessToken}`);
-          response = await fetch(url, { ...options, headers });
-        } else {
-          clearStoredTokens();
-        }
-      } catch {
+      if (refreshRes.ok) {
+        const data = await refreshRes.json();
+        setStoredTokens(data.accessToken);
+        headers.set("Authorization", `Bearer ${data.accessToken}`);
+        response = await fetch(url, { ...options, headers, credentials: options.credentials || "include" });
+      } else {
         clearStoredTokens();
       }
+    } catch {
+      clearStoredTokens();
     }
   }
 

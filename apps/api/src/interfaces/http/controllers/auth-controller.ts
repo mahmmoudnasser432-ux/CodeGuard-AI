@@ -10,6 +10,8 @@ import { randomUUID } from "crypto";
 import { EmailService } from "../../../application/services/email-service.js";
 import { env } from "../../../config/env.js";
 
+import type { CookieOptions } from "express";
+
 // Validation schemas
 const registerSchema = z.object({
   email: z.string().email(),
@@ -30,6 +32,63 @@ const resetPasswordValidateSchema = z.object({
   token: z.string(),
   password: z.string().min(8)
 });
+
+export function getRefreshCookieOptions(customEnv = env): CookieOptions {
+  return {
+    httpOnly: true,
+    secure: customEnv.AUTH_COOKIE_SECURE,
+    sameSite: customEnv.AUTH_COOKIE_SAME_SITE,
+    path: customEnv.AUTH_COOKIE_PATH,
+    domain: customEnv.AUTH_COOKIE_DOMAIN || undefined,
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
+  };
+}
+
+export function getClearRefreshCookieOptions(customEnv = env): CookieOptions {
+  return {
+    httpOnly: true,
+    secure: customEnv.AUTH_COOKIE_SECURE,
+    sameSite: customEnv.AUTH_COOKIE_SAME_SITE,
+    path: customEnv.AUTH_COOKIE_PATH,
+    domain: customEnv.AUTH_COOKIE_DOMAIN || undefined,
+  };
+}
+
+export function parseCookiesFromHeader(cookieHeader?: string): Record<string, string> {
+  if (!cookieHeader) return {};
+  const cookies: Record<string, string> = {};
+  const parts = cookieHeader.split(";");
+  for (const part of parts) {
+    const idx = part.indexOf("=");
+    if (idx !== -1) {
+      const key = part.slice(0, idx).trim();
+      const val = part.slice(idx + 1).trim();
+      try {
+        cookies[key] = decodeURIComponent(val);
+      } catch {
+        cookies[key] = val;
+      }
+    }
+  }
+  return cookies;
+}
+
+export function getRefreshTokenFromRequest(req: Request, cookieName = env.AUTH_COOKIE_NAME): string | undefined {
+  if ((req as any).cookies && (req as any).cookies[cookieName]) {
+    return (req as any).cookies[cookieName];
+  }
+  const rawCookieHeader = req.header("cookie");
+  if (rawCookieHeader) {
+    const parsed = parseCookiesFromHeader(rawCookieHeader);
+    if (parsed[cookieName]) {
+      return parsed[cookieName];
+    }
+  }
+  if (req.body && typeof req.body.refreshToken === "string" && req.body.refreshToken.trim()) {
+    return req.body.refreshToken.trim();
+  }
+  return undefined;
+}
 
 export function authController(
   authService: AuthService,
@@ -99,20 +158,24 @@ export function authController(
         return;
       }
 
-      // TODO: Check if account is locked due to failed attempts
-      // This would require tracking failed login attempts in the user entity or a separate table
+      // Check if user email is verified
+      if (!user.isEmailVerified) {
+        res.status(403).json({ error: "EMAIL_NOT_VERIFIED" });
+        return;
+      }
 
       // Issue tokens with session
-      // Extract IP address and user agent from request
       const ipAddress = req.ip || (req.connection && req.connection.remoteAddress) || '';
       const userAgent = req.get('User-Agent') || '';
 
       const result = await authService.issueTokensWithSession(user, ipAddress, userAgent);
 
-      // Return tokens and user info (excluding sensitive data)
+      // Set HttpOnly refresh token cookie
+      res.cookie(env.AUTH_COOKIE_NAME, result.refreshToken, getRefreshCookieOptions());
+
+      // Return access token and user info (refresh token is sent exclusively via HttpOnly cookie)
       res.json({
         accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
         user: {
           id: user.id,
           email: user.email,
@@ -129,7 +192,7 @@ export function authController(
   // Refresh token endpoint
   router.post("/refresh", async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { refreshToken } = req.body;
+      const refreshToken = getRefreshTokenFromRequest(req);
 
       if (!refreshToken) {
         res.status(400).json({ error: "REFRESH_TOKEN_REQUIRED" });
@@ -143,14 +206,22 @@ export function authController(
       // Use authService to refresh token
       const result = await authService.refreshAccessToken(refreshToken, ipAddress, userAgent);
 
-      // Return new tokens
+      // Rotate HttpOnly cookie
+      res.cookie(env.AUTH_COOKIE_NAME, result.newRefreshToken, getRefreshCookieOptions());
+
+      // Return new access token (refresh token rotated exclusively via HttpOnly cookie)
       res.json({
-        accessToken: result.accessToken,
-        refreshToken: result.newRefreshToken
+        accessToken: result.accessToken
       });
     } catch (err: any) {
       console.error('Refresh error:', err);
-      if (err.message === 'Invalid or expired refresh token') {
+      if (
+        err.message === 'Invalid or expired refresh token' ||
+        err.message === 'Invalid refresh token' ||
+        err.message === 'Invalid refresh token: missing JTI' ||
+        err.message === 'Invalid refresh token signature' ||
+        err.message?.toLowerCase().includes('refresh token')
+      ) {
         res.status(401).json({ error: "INVALID_REFRESH_TOKEN" });
       } else if (err.message === 'Associated session not found or invalid') {
         res.status(401).json({ error: "INVALID_SESSION" });
@@ -163,19 +234,18 @@ export function authController(
   // Logout endpoint
   router.post("/logout", authenticate, async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { refreshToken } = req.body;
+      const refreshToken = getRefreshTokenFromRequest(req);
 
       if (!refreshToken) {
         res.status(400).json({ error: "REFRESH_TOKEN_REQUIRED" });
         return;
       }
 
-      // Extract IP address and user agent from request
-      const ipAddress = req.ip || (req.connection && req.connection.remoteAddress) || '';
-      const userAgent = req.get('User-Agent') || '';
-
       // Use authService to logout
       await authService.logout(refreshToken);
+
+      // Clear refresh cookie
+      res.clearCookie(env.AUTH_COOKIE_NAME, getClearRefreshCookieOptions());
 
       res.status(204).send();
     } catch (err: any) {
@@ -196,14 +266,17 @@ export function authController(
       // Use authService to logout from all sessions
       await authService.logoutAllSessions(userId);
 
+      // Clear refresh cookie
+      res.clearCookie(env.AUTH_COOKIE_NAME, getClearRefreshCookieOptions());
+
       res.status(204).send();
     } catch (err: any) {
       next(err);
     }
   });
 
-  // Request password reset endpoint
-  router.post("/reset-password/request", async (req: Request, res: Response, next: NextFunction) => {
+  // Request password reset endpoint (supports both /reset-password/request and /request-password-reset)
+  const handlePasswordResetRequest = async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Validate input
       const dto = resetPasswordRequestSchema.parse(req.body);
@@ -225,7 +298,10 @@ export function authController(
     } catch (err: any) {
       next(err);
     }
-  });
+  };
+
+  router.post("/reset-password/request", handlePasswordResetRequest);
+  router.post("/request-password-reset", handlePasswordResetRequest);
 
   // Validate password reset token endpoint
   router.post("/reset-password/validate", async (req: Request, res: Response, next: NextFunction) => {
@@ -246,8 +322,8 @@ export function authController(
     }
   });
 
-  // Confirm password reset endpoint (token + new password)
-  router.post("/reset-password/confirm", async (req: Request, res: Response, next: NextFunction) => {
+  // Confirm password reset endpoint (supports both /reset-password/confirm and /reset-password)
+  const handlePasswordResetConfirm = async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Validate input
       const dto = resetPasswordValidateSchema.parse(req.body);
@@ -280,7 +356,10 @@ export function authController(
     } catch (err: any) {
       next(err);
     }
-  });
+  };
+
+  router.post("/reset-password/confirm", handlePasswordResetConfirm);
+  router.post("/reset-password", handlePasswordResetConfirm);
 
   // Request email verification resend endpoint
   router.post("/resend-verification", async (req: Request, res: Response, next: NextFunction) => {
@@ -294,6 +373,11 @@ export function authController(
 
       // Find user by email
       const user = await userRepository.findByEmail(email);
+
+      if (user && user.isEmailVerified) {
+        res.status(400).json({ error: "EMAIL_ALREADY_VERIFIED" });
+        return;
+      }
 
       // Always return success to prevent email enumeration
       // But only create token if user actually exists and is not verified

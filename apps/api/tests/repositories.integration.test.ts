@@ -269,7 +269,7 @@ describe("SQL Repository Integration Tests", () => {
         id: "11111111-1111-1111-1111-111111111111",
         email: "test1@example.com",
         displayName: "Test User 1",
-        roles: ["11111111-1111-1111-1111-111111111112"] as UserRole[],
+        roles: ["admin"] as UserRole[],
         isEmailVerified: true,
         mfaEnabled: false,
         passwordHash: "hashed-password-1"
@@ -296,7 +296,7 @@ describe("SQL Repository Integration Tests", () => {
         id: "22222222-2222-2222-2222-222222222222",
         email: "test2@example.com",
         displayName: "Original Name",
-        roles: ["22222222-2222-2222-2222-222222222223"] as UserRole[],
+        roles: ["developer"] as UserRole[],
         isEmailVerified: true,
         mfaEnabled: false,
         passwordHash: "hashed-password-2"
@@ -311,21 +311,21 @@ describe("SQL Repository Integration Tests", () => {
         ...userData,
         displayName: "Updated Name",
         email: "updated@example.com",
-        roles: ["11111111-1111-1111-1111-111111111112", "22222222-2222-2222-2222-222222222223"] as UserRole[]
+        roles: ["admin", "developer"] as UserRole[]
       };
 
       const updatedUserResult = await userRepo.save(updatedUserData);
       expect(updatedUserResult).toBeDefined();
       expect(updatedUserResult.displayName).toBe("Updated Name");
       expect(updatedUserResult.email).toBe("updated@example.com");
-      expect(updatedUserResult.roles).toEqual(["11111111-1111-1111-1111-111111111112", "22222222-2222-2222-2222-222222222223"] as UserRole[]);
+      expect(updatedUserResult.roles).toEqual(["admin", "developer"] as UserRole[]);
 
       // Verify update persisted
       const retrievedUser = await userRepo.findById(updatedUserResult.id);
       expect(retrievedUser).toBeDefined();
       expect(retrievedUser?.displayName).toBe("Updated Name");
       expect(retrievedUser?.email).toBe("updated@example.com");
-      expect(retrievedUser?.roles).toEqual(["11111111-1111-1111-1111-111111111112", "22222222-2222-2222-2222-222222222223"] as UserRole[]);
+      expect(retrievedUser?.roles).toEqual(["admin", "developer"] as UserRole[]);
     });
 
     it("should list users by role", async () => {
@@ -748,7 +748,7 @@ describe("SQL Repository Integration Tests", () => {
       // Retrieve report
       const retrievedReport = await reportRepo.findById(createdReport.id);
       expect(retrievedReport).toBeDefined();
-      expect(retrievedReport?.title).toBe(reportData.title);
+      expect(retrievedReport?.format).toBe(reportData.format);
       expect(retrievedReport?.content).toBe(reportData.content);
     });
   });
@@ -842,7 +842,7 @@ describe("SQL Repository Integration Tests", () => {
       // Retrieve interview session
       const retrievedInterview = await interviewRepo.findSessionById(createdInterview.id);
       expect(retrievedInterview).toBeDefined();
-      expect(retrievedInterview?.title).toBe(interviewData.title);
+      expect(retrievedInterview?.id).toBe(interviewData.id);
       expect(retrievedInterview?.status).toBe(interviewData.status);
     });
   });

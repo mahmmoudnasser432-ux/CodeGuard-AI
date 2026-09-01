@@ -6,7 +6,6 @@ import {
   AuthUser,
   AuthResponse,
   getStoredAccessToken,
-  getStoredRefreshToken,
   getStoredUser,
   setStoredTokens,
   clearStoredTokens,
@@ -47,6 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ email, password }),
       });
 
@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const data: AuthResponse = await response.json();
-      setStoredTokens(data.accessToken, data.refreshToken, data.user);
+      setStoredTokens(data.accessToken, data.user);
       setAccessToken(data.accessToken);
       setUser(data.user);
       return { success: true };
@@ -73,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ email, password, displayName }),
       });
 
@@ -91,10 +92,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [login]);
 
   const logout = useCallback(async () => {
-    const refreshToken = getStoredRefreshToken();
     const token = getStoredAccessToken();
 
-    if (token && refreshToken) {
+    if (token) {
       try {
         await fetch(`${API_BASE_URL}/api/auth/logout`, {
           method: "POST",
@@ -102,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ refreshToken }),
+          credentials: "include",
         });
       } catch (err) {
         console.error("Logout error:", err);
@@ -123,12 +123,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         headers: {
           Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
       });
 
       if (response.ok) {
         const userData = await response.json();
         setUser(userData);
-        setStoredTokens(token, undefined, userData);
+        setStoredTokens(token, userData);
       }
     } catch (err) {
       console.error("Failed to refresh user:", err);

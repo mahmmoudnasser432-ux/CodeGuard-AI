@@ -11,6 +11,7 @@ describe("Phase 1 Security: Environment Configuration Validation", () => {
     API_BASE_URL: "https://api.codeguard.ai",
     JWT_ACCESS_SECRET: "a-super-secret-access-token-key-for-prod-32bytes",
     JWT_REFRESH_SECRET: "a-super-secret-refresh-token-key-for-prod-32bytes",
+    SQLSERVER_PASSWORD: "ProdSqlPassword123!",
   };
 
   it("accepts valid production configuration", () => {

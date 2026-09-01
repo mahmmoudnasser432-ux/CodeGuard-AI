@@ -15,6 +15,16 @@ import { AuthService } from "../src/application/services/auth-service";
 // Helper to clean up test data
 async function cleanupTestData() {
   const tables = [
+    "Reports",
+    "AnalysisScores",
+    "Analyses",
+    "Files",
+    "Repositories",
+    "Projects",
+    "InterviewResults",
+    "InterviewQuestions",
+    "InterviewSessions",
+    "Notifications",
     "AuditLogs",
     "RefreshTokens",
     "Sessions",
@@ -26,7 +36,7 @@ async function cleanupTestData() {
 
   for (const table of tables) {
     try {
-      await sqlPool.request().query(`DELETE FROM ${table}`);
+      await sqlPool.request().query(`DELETE FROM dbo.${table}`);
     } catch (err) {
       // Table might not exist yet, or other issues - ignore for cleanup
     }
@@ -243,15 +253,17 @@ describe("Auth Integration Tests", () => {
         .expect(200);
 
       expect(response.body).toHaveProperty("accessToken");
-      expect(response.body).toHaveProperty("refreshToken");
+      expect(response.body.refreshToken).toBeUndefined();
       expect(response.body).toHaveProperty("user");
       expect(response.body.user).toHaveProperty("id");
       expect(response.body.user.email).toBe(TEST_USER.email);
       expect(response.body.user.roles).toContain("developer");
 
-      // Verify tokens are present
-      expect(response.body.accessToken).toBeDefined();
-      expect(response.body.refreshToken).toBeDefined();
+      // Verify HttpOnly cookie is present
+      expect(response.headers["set-cookie"]).toBeDefined();
+      const cookieHeader = response.headers["set-cookie"].join("; ");
+      expect(cookieHeader).toMatch(/codeguard_refresh_token=/);
+      expect(cookieHeader).toMatch(/HttpOnly/i);
     });
 
     it("should return 401 for invalid credentials", async () => {
@@ -297,7 +309,7 @@ describe("Auth Integration Tests", () => {
 
   describe("POST /api/auth/refresh", () => {
     let accessToken: string;
-    let refreshToken: string;
+    let authCookie: string;
 
     beforeEach(async () => {
       // Create and verify a user
@@ -332,47 +344,39 @@ describe("Auth Integration Tests", () => {
         });
 
       accessToken = loginResponse.body.accessToken;
-      refreshToken = loginResponse.body.refreshToken;
+      const setCookies = loginResponse.headers["set-cookie"];
+      authCookie = setCookies ? setCookies[0].split(";")[0] : "";
     });
 
     it("should refresh access token with valid refresh token", async () => {
       const response = await request(app)
         .post("/api/auth/refresh")
-        .send({
-          refreshToken
-        })
+        .set("Cookie", authCookie)
         .expect(200);
 
       expect(response.body).toHaveProperty("accessToken");
-      expect(response.body).toHaveProperty("refreshToken");
+      expect(response.body.refreshToken).toBeUndefined();
       expect(response.body.accessToken).not.toBe(accessToken); // Should be new token
-      expect(response.body.refreshToken).not.toBe(refreshToken); // Should be new token (rotation)
+      expect(response.headers["set-cookie"]).toBeDefined();
     });
 
     it("should return 401 for invalid refresh token", async () => {
       await request(app)
         .post("/api/auth/refresh")
-        .send({
-          refreshToken: "invalid.refresh.token"
-        })
+        .set("Cookie", "codeguard_refresh_token=invalid.refresh.token")
         .expect(401);
     });
 
-    it("should return 401 for expired refresh token", async () => {
-      // Note: Testing actual expiration would require waiting or mocking time
-      // For now, we'll test with an invalid token which should behave similarly
+    it("should return 400 for missing refresh token", async () => {
       await request(app)
         .post("/api/auth/refresh")
-        .send({
-          refreshToken: "invalid.refresh.token"
-        })
-        .expect(401);
+        .expect(400);
     });
   });
 
   describe("POST /api/auth/logout", () => {
     let accessToken: string;
-    let refreshToken: string;
+    let authCookie: string;
 
     beforeEach(async () => {
       // Create and verify a user
@@ -407,41 +411,36 @@ describe("Auth Integration Tests", () => {
         });
 
       accessToken = loginResponse.body.accessToken;
-      refreshToken = loginResponse.body.refreshToken;
+      const setCookies = loginResponse.headers["set-cookie"];
+      authCookie = setCookies ? setCookies[0].split(";")[0] : "";
     });
 
     it("should logout user with valid refresh token", async () => {
       await request(app)
         .post("/api/auth/logout")
         .set("Authorization", `Bearer ${accessToken}`)
-        .send({
-          refreshToken
-        })
+        .set("Cookie", authCookie)
         .expect(204);
 
       // Verify refresh token is no longer valid
       await request(app)
         .post("/api/auth/refresh")
-        .send({
-          refreshToken
-        })
+        .set("Cookie", authCookie)
         .expect(401);
     });
 
     it("should return 401 without authentication", async () => {
       await request(app)
         .post("/api/auth/logout")
-        .send({
-          refreshToken
-        })
+        .set("Cookie", authCookie)
         .expect(401);
     });
   });
 
   describe("POST /api/auth/logout-all", () => {
     let accessToken: string;
-    let refreshToken1: string;
-    let refreshToken2: string;
+    let authCookie1: string;
+    let authCookie2: string;
 
     beforeEach(async () => {
       // Create and verify a user
@@ -483,8 +482,10 @@ describe("Auth Integration Tests", () => {
         });
 
       accessToken = loginResponse1.body.accessToken;
-      refreshToken1 = loginResponse1.body.refreshToken;
-      refreshToken2 = loginResponse2.body.refreshToken;
+      const setCookies1 = loginResponse1.headers["set-cookie"];
+      authCookie1 = setCookies1 ? setCookies1[0].split(";")[0] : "";
+      const setCookies2 = loginResponse2.headers["set-cookie"];
+      authCookie2 = setCookies2 ? setCookies2[0].split(";")[0] : "";
     });
 
     it("should logout user from all sessions", async () => {
@@ -496,16 +497,12 @@ describe("Auth Integration Tests", () => {
       // Verify both refresh tokens are no longer valid
       await request(app)
         .post("/api/auth/refresh")
-        .send({
-          refreshToken: refreshToken1
-        })
+        .set("Cookie", authCookie1)
         .expect(401);
 
       await request(app)
         .post("/api/auth/refresh")
-        .send({
-          refreshToken: refreshToken2
-        })
+        .set("Cookie", authCookie2)
         .expect(401);
     });
 
@@ -562,11 +559,10 @@ describe("Auth Integration Tests", () => {
       expect(response.body).toHaveProperty("message");
 
       // Verify a password reset token was created in the database
-      // Note: We can't easily retrieve the plain token, but we can verify the hash exists
       const user = await userRepo.findByEmail(TEST_USER.email);
-      const resetTokens = await passwordResetTokenRepo.findByUserId(user!.id);
-      expect(resetTokens).toBeDefined();
-      expect(resetTokens?.length).toBeGreaterThan(0);
+      const resetToken = await passwordResetTokenRepo.findByUserId(user!.id);
+      expect(resetToken).toBeDefined();
+      expect(resetToken?.tokenHash).toBeDefined();
     });
   });
 
@@ -587,7 +583,8 @@ describe("Auth Integration Tests", () => {
         sessionRepo,
         refreshTokenRepo,
         passwordResetTokenRepo,
-        emailVerificationTokenRepo
+        emailVerificationTokenRepo,
+        userRepo
       );
       const verificationToken = await authService.createEmailVerificationToken(
         (await userRepo.findByEmail(TEST_USER.email))!.id
@@ -598,30 +595,19 @@ describe("Auth Integration Tests", () => {
         .expect(200);
 
       // Request password reset to get a token
-      const resetRequest = await request(app)
+      await request(app)
         .post("/api/auth/request-password-reset")
         .send({
           email: TEST_USER.email
         });
 
-      // Extract token from email simulation (in real scenario, this would come from email)
-      // For testing, we'll get it directly from the repository
       const user = await userRepo.findByEmail(TEST_USER.email);
-      const resetTokens = await passwordResetTokenRepo.findByUserId(user!.id);
-      resetToken = resetTokens![0]!.id; // We'll use the token ID to look up the hash, but need the plain token
-
-      // Actually, we need to get the plain token from the service layer
-      // For testing purposes, we'll create a token directly (though this skips the actual flow)
-      // Note: This is a simplified approach for test setup
-      const plainToken = await passwordResetTokenRepo.createPasswordResetToken(user!.id);
+      const plainToken = await authService.createPasswordResetToken(user!.id);
       resetToken = plainToken;
     });
 
     // Note: This test is simplified because extracting the actual token from the flow is complex
-    // In a real test, we'd need to mock the email service or extract from logs
     it.skip("should reset password with valid token", async () => {
-      // This test would require extracting the actual token from the request-password-reset flow
-      // For brevity, we're skipping this complex test
     });
 
     it("should return 400 for invalid token", async () => {
@@ -635,8 +621,6 @@ describe("Auth Integration Tests", () => {
     });
 
     it.skip("should validate password requirements", async () => {
-      // This would require a valid token - skipping for brevity
-      // Test would go here
     });
   });
 
@@ -671,9 +655,9 @@ describe("Auth Integration Tests", () => {
 
       // Verify a new email verification token was created
       const user = await userRepo.findByEmail("unverified@example.com");
-      const verificationTokens = await emailVerificationTokenRepo.findByUserId(user!.id);
-      expect(verificationTokens).toBeDefined();
-      expect(verificationTokens?.length).toBeGreaterThan(0);
+      const verificationToken = await emailVerificationTokenRepo.findByUserId(user!.id);
+      expect(verificationToken).toBeDefined();
+      expect(verificationToken?.tokenHash).toBeDefined();
     });
 
     it("should return 400 for already verified user", async () => {

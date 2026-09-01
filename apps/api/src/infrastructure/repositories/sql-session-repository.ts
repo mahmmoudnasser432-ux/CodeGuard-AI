@@ -103,10 +103,16 @@ export class SqlSessionRepository implements SessionRepository {
     const pool = await sqlPool.connect();
     await pool.request()
       .input('id', session.id)
+      .input('jti', session.jti)
+      .input('refreshTokenHash', session.refreshTokenHash ?? null)
+      .input('expiresAt', session.expiresAt)
       .input('revokedAt', session.revokedAt ?? null)
       .query(`
         UPDATE dbo.Sessions
-        SET RevokedAt = @revokedAt
+        SET Jti = @jti,
+            RefreshTokenHash = @refreshTokenHash,
+            ExpiresAt = @expiresAt,
+            RevokedAt = @revokedAt
         WHERE Id = @id
       `);
   }

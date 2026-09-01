@@ -62,6 +62,15 @@ export const envSchema = z
       (val) => (typeof val === "string" ? val.toLowerCase() === "true" || val === "1" : Boolean(val)),
       z.boolean()
     ).default(false),
+    // Cookie configuration for refresh tokens
+    AUTH_COOKIE_NAME: z.string().default("codeguard_refresh_token"),
+    AUTH_COOKIE_SAME_SITE: z.enum(["lax", "strict", "none"]).default("lax"),
+    AUTH_COOKIE_DOMAIN: z.string().optional(),
+    AUTH_COOKIE_PATH: z.string().default("/api/auth"),
+    AUTH_COOKIE_SECURE: z.preprocess(
+      (val) => (typeof val === "string" ? val.toLowerCase() === "true" || val === "1" : Boolean(val)),
+      z.boolean()
+    ).optional(),
   })
   .superRefine((data, ctx) => {
     const isProd = data.NODE_ENV === "production";
@@ -163,6 +172,11 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv | Record<string, string | und
       ? parsed.SQLSERVER_POOL_MIN
       : isProd ? 2 : 0;
 
+  const effectiveCookieSecure =
+    parsed.AUTH_COOKIE_SECURE !== undefined
+      ? parsed.AUTH_COOKIE_SECURE
+      : isProd;
+
   return {
     ...parsed,
     API_BASE_URL: effectiveApiBaseUrl,
@@ -170,6 +184,7 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv | Record<string, string | und
     JWT_REFRESH_SECRET: effectiveRefreshSecret,
     SQLSERVER_TRUST_SERVER_CERTIFICATE: effectiveTrustServerCert,
     SQLSERVER_POOL_MIN: effectivePoolMin,
+    AUTH_COOKIE_SECURE: effectiveCookieSecure,
   };
 }
 
