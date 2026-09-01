@@ -7,6 +7,8 @@ import {
   AuthResponse,
   getStoredAccessToken,
   getStoredUser,
+  getCsrfTokenFromCookie,
+  ensureCsrfToken,
   setStoredTokens,
   clearStoredTokens,
 } from "./api";
@@ -43,9 +45,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     setIsLoading(true);
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      let csrfToken = getCsrfTokenFromCookie();
+      if (!csrfToken) {
+        csrfToken = await ensureCsrfToken();
+      }
+      if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         credentials: "include",
         body: JSON.stringify({ email, password }),
       });
@@ -70,9 +79,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = useCallback(async (email: string, password: string, displayName?: string) => {
     setIsLoading(true);
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      let csrfToken = getCsrfTokenFromCookie();
+      if (!csrfToken) {
+        csrfToken = await ensureCsrfToken();
+      }
+      if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+
       const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         credentials: "include",
         body: JSON.stringify({ email, password, displayName }),
       });
@@ -96,16 +112,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (token) {
       try {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        };
+        let csrfToken = getCsrfTokenFromCookie();
+        if (!csrfToken) {
+          csrfToken = await ensureCsrfToken();
+        }
+        if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+
         await fetch(`${API_BASE_URL}/api/auth/logout`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
+          headers,
           credentials: "include",
         });
       } catch (err) {
-        console.error("Logout error:", err);
+        console.error("Logout API call failed:", err);
       }
     }
 

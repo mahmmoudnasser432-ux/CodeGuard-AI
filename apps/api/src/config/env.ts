@@ -71,6 +71,9 @@ export const envSchema = z
       (val) => (typeof val === "string" ? val.toLowerCase() === "true" || val === "1" : Boolean(val)),
       z.boolean()
     ).optional(),
+    // CSRF Cookie configuration
+    CSRF_COOKIE_NAME: z.string().default("codeguard_csrf_token"),
+    CSRF_COOKIE_PATH: z.string().default("/"),
   })
   .superRefine((data, ctx) => {
     const isProd = data.NODE_ENV === "production";

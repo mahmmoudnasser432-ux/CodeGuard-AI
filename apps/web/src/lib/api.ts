@@ -107,6 +107,32 @@ export interface AuthResponse {
 export const TOKEN_KEY = "codeguard_access_token";
 export const USER_KEY = "codeguard_user";
 
+export function getCsrfTokenFromCookie(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(/(?:^|;\s*)codeguard_csrf_token=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+export async function ensureCsrfToken(): Promise<string | null> {
+  let token = getCsrfTokenFromCookie();
+  if (token) return token;
+  if (typeof window === "undefined") return null;
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/auth/csrf`, {
+      method: "GET",
+      credentials: "include",
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.csrfToken || getCsrfTokenFromCookie();
+    }
+  } catch {
+    // Fallback gracefully
+  }
+  return getCsrfTokenFromCookie();
+}
+
 export function getStoredAccessToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem(TOKEN_KEY);
@@ -136,7 +162,7 @@ export function getStoredUser(): AuthUser | null {
   }
 }
 
-// Low-level fetch wrapper with Auth token and HttpOnly Refresh Token interceptor
+// Low-level fetch wrapper with Auth token, CSRF token, and HttpOnly Refresh Token interceptor
 export async function authenticatedFetch(
   endpoint: string,
   options: RequestInit = {}
@@ -148,15 +174,35 @@ export async function authenticatedFetch(
     headers.set("Authorization", `Bearer ${token}`);
   }
 
+  const method = (options.method || "GET").toUpperCase();
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    let csrfToken = getCsrfTokenFromCookie();
+    if (!csrfToken && typeof window !== "undefined") {
+      csrfToken = await ensureCsrfToken();
+    }
+    if (csrfToken && !headers.has("X-CSRF-Token") && !headers.has("x-csrf-token")) {
+      headers.set("X-CSRF-Token", csrfToken);
+    }
+  }
+
   const url = endpoint.startsWith("http") ? endpoint : `${API_BASE_URL}${endpoint}`;
   let response = await fetch(url, { ...options, headers, credentials: options.credentials || "include" });
 
-  // Handle 401 and try refresh using HttpOnly cookie
+  // Handle 401 and try refresh using HttpOnly cookie (do not refresh on 403 CSRF failures)
   if (response.status === 401 && !endpoint.includes("/api/auth/")) {
     try {
+      const refreshHeaders: Record<string, string> = { "Content-Type": "application/json" };
+      let csrfToken = getCsrfTokenFromCookie();
+      if (!csrfToken && typeof window !== "undefined") {
+        csrfToken = await ensureCsrfToken();
+      }
+      if (csrfToken) {
+        refreshHeaders["X-CSRF-Token"] = csrfToken;
+      }
+
       const refreshRes = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: refreshHeaders,
         credentials: "include",
       });
 

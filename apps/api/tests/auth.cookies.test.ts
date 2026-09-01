@@ -221,13 +221,17 @@ describe("Auth HttpOnly Cookie & Token Storage Hardening", () => {
         .expect(200);
 
       expect(loginRes.body.refreshToken).toBeUndefined();
-      const loginCookies = loginRes.headers["set-cookie"];
-      const initialCookie = loginCookies[0].split(";")[0]; // codeguard_refresh_token=...
+      const loginCookies: string[] = loginRes.headers["set-cookie"] || [];
+      const refreshCookie = loginCookies.find((c) => c.startsWith("codeguard_refresh_token="))?.split(";")[0];
+      const csrfCookie = loginCookies.find((c) => c.startsWith("codeguard_csrf_token="))?.split(";")[0];
+      const csrfToken = csrfCookie?.replace("codeguard_csrf_token=", "");
+      const cookieHeader = [refreshCookie, csrfCookie].filter(Boolean).join("; ");
 
-      // 2. Call refresh sending Cookie header
+      // 2. Call refresh sending Cookie header & X-CSRF-Token
       const refreshRes = await request(app)
         .post("/api/auth/refresh")
-        .set("Cookie", initialCookie)
+        .set("Cookie", cookieHeader)
+        .set("X-CSRF-Token", csrfToken!)
         .expect(200);
 
       expect(refreshRes.body.accessToken).toBeDefined();
@@ -237,20 +241,25 @@ describe("Auth HttpOnly Cookie & Token Storage Hardening", () => {
 
       // Should rotate and set a new cookie
       expect(refreshRes.headers["set-cookie"]).toBeDefined();
-      const rotatedCookie = refreshRes.headers["set-cookie"][0].split(";")[0];
-      expect(rotatedCookie).toMatch(/codeguard_refresh_token=/);
-      expect(rotatedCookie).not.toBe(initialCookie);
+      const newCookies: string[] = refreshRes.headers["set-cookie"] || [];
+      const rotatedRefreshCookie = newCookies.find((c) => c.startsWith("codeguard_refresh_token="))?.split(";")[0];
+      const rotatedCsrfCookie = newCookies.find((c) => c.startsWith("codeguard_csrf_token="))?.split(";")[0];
+      const rotatedCsrfToken = rotatedCsrfCookie?.replace("codeguard_csrf_token=", "");
+      expect(rotatedRefreshCookie).toMatch(/codeguard_refresh_token=/);
+      expect(rotatedRefreshCookie).not.toBe(refreshCookie);
 
       // 3. Old refresh token cookie should now be rejected (revoked on rotation)
       await request(app)
         .post("/api/auth/refresh")
-        .set("Cookie", initialCookie)
+        .set("Cookie", `${refreshCookie}; ${csrfCookie}`)
+        .set("X-CSRF-Token", csrfToken!)
         .expect(401);
 
       // 4. New rotated cookie should succeed
       const secondRefreshRes = await request(app)
         .post("/api/auth/refresh")
-        .set("Cookie", rotatedCookie)
+        .set("Cookie", `${rotatedRefreshCookie}; ${rotatedCsrfCookie}`)
+        .set("X-CSRF-Token", rotatedCsrfToken!)
         .expect(200);
 
       expect(secondRefreshRes.body.accessToken).toBeDefined();
@@ -268,14 +277,19 @@ describe("Auth HttpOnly Cookie & Token Storage Hardening", () => {
         })
         .expect(200);
 
-      const cookie = loginRes.headers["set-cookie"][0].split(";")[0];
+      const loginCookies: string[] = loginRes.headers["set-cookie"] || [];
+      const refreshCookie = loginCookies.find((c) => c.startsWith("codeguard_refresh_token="))?.split(";")[0];
+      const csrfCookie = loginCookies.find((c) => c.startsWith("codeguard_csrf_token="))?.split(";")[0];
+      const csrfToken = csrfCookie?.replace("codeguard_csrf_token=", "");
+      const cookieHeader = [refreshCookie, csrfCookie].filter(Boolean).join("; ");
       const accessToken = loginRes.body.accessToken;
 
-      // 2. Logout with access token & cookie
+      // 2. Logout with access token, cookie & CSRF header
       const logoutRes = await request(app)
         .post("/api/auth/logout")
         .set("Authorization", `Bearer ${accessToken}`)
-        .set("Cookie", cookie)
+        .set("Cookie", cookieHeader)
+        .set("X-CSRF-Token", csrfToken!)
         .expect(204);
 
       // Cookie should be cleared (Expires in the past or maxAge=0)
@@ -285,7 +299,8 @@ describe("Auth HttpOnly Cookie & Token Storage Hardening", () => {
       // 3. Subsequent refresh with revoked cookie must fail
       await request(app)
         .post("/api/auth/refresh")
-        .set("Cookie", cookie)
+        .set("Cookie", cookieHeader)
+        .set("X-CSRF-Token", csrfToken!)
         .expect(401);
     });
 

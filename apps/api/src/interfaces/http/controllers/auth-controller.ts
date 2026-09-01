@@ -9,6 +9,10 @@ import { authorizeRoles } from "../middleware/authorization.js";
 import { randomUUID } from "crypto";
 import { EmailService } from "../../../application/services/email-service.js";
 import { env } from "../../../config/env.js";
+import { generateCsrfToken, getCsrfCookieOptions, csrfProtection } from "../middleware/csrf.js";
+import { parseCookiesFromHeader } from "../utils/cookies.js";
+
+export { parseCookiesFromHeader };
 
 import type { CookieOptions } from "express";
 
@@ -54,25 +58,6 @@ export function getClearRefreshCookieOptions(customEnv = env): CookieOptions {
   };
 }
 
-export function parseCookiesFromHeader(cookieHeader?: string): Record<string, string> {
-  if (!cookieHeader) return {};
-  const cookies: Record<string, string> = {};
-  const parts = cookieHeader.split(";");
-  for (const part of parts) {
-    const idx = part.indexOf("=");
-    if (idx !== -1) {
-      const key = part.slice(0, idx).trim();
-      const val = part.slice(idx + 1).trim();
-      try {
-        cookies[key] = decodeURIComponent(val);
-      } catch {
-        cookies[key] = val;
-      }
-    }
-  }
-  return cookies;
-}
-
 export function getRefreshTokenFromRequest(req: Request, cookieName = env.AUTH_COOKIE_NAME): string | undefined {
   if ((req as any).cookies && (req as any).cookies[cookieName]) {
     return (req as any).cookies[cookieName];
@@ -96,6 +81,13 @@ export function authController(
 ) {
   const router = Router();
   const emailService = new EmailService();
+
+  // Get CSRF Token endpoint (for browser clients to obtain/refresh CSRF token)
+  router.get("/csrf", (_req: Request, res: Response) => {
+    const token = generateCsrfToken();
+    res.cookie(env.CSRF_COOKIE_NAME, token, getCsrfCookieOptions());
+    res.json({ csrfToken: token });
+  });
 
   // Register endpoint
   router.post("/register", async (req: Request, res: Response, next: NextFunction) => {
@@ -133,6 +125,10 @@ export function authController(
       if (env.NODE_ENV !== "test") {
         await emailService.sendVerificationEmail(user.email, verificationToken);
       }
+
+      // Issue CSRF cookie for subsequent authenticated browser requests
+      const csrfToken = generateCsrfToken();
+      res.cookie(env.CSRF_COOKIE_NAME, csrfToken, getCsrfCookieOptions());
 
       res.status(201).json({
         message: "USER_CREATED_VERIFICATION_EMAIL_SENT",
@@ -173,6 +169,10 @@ export function authController(
       // Set HttpOnly refresh token cookie
       res.cookie(env.AUTH_COOKIE_NAME, result.refreshToken, getRefreshCookieOptions());
 
+      // Set JavaScript-accessible CSRF cookie for subsequent state-changing requests
+      const csrfToken = generateCsrfToken();
+      res.cookie(env.CSRF_COOKIE_NAME, csrfToken, getCsrfCookieOptions());
+
       // Return access token and user info (refresh token is sent exclusively via HttpOnly cookie)
       res.json({
         accessToken: result.accessToken,
@@ -190,7 +190,7 @@ export function authController(
   });
 
   // Refresh token endpoint
-  router.post("/refresh", async (req: Request, res: Response, next: NextFunction) => {
+  router.post("/refresh", csrfProtection(), async (req: Request, res: Response, next: NextFunction) => {
     try {
       const refreshToken = getRefreshTokenFromRequest(req);
 
@@ -208,6 +208,10 @@ export function authController(
 
       // Rotate HttpOnly cookie
       res.cookie(env.AUTH_COOKIE_NAME, result.newRefreshToken, getRefreshCookieOptions());
+
+      // Maintain/rotate CSRF cookie
+      const csrfToken = generateCsrfToken();
+      res.cookie(env.CSRF_COOKIE_NAME, csrfToken, getCsrfCookieOptions());
 
       // Return new access token (refresh token rotated exclusively via HttpOnly cookie)
       res.json({
@@ -232,7 +236,7 @@ export function authController(
   });
 
   // Logout endpoint
-  router.post("/logout", authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  router.post("/logout", csrfProtection(), authenticate, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const refreshToken = getRefreshTokenFromRequest(req);
 
@@ -254,7 +258,7 @@ export function authController(
   });
 
   // Logout from all sessions endpoint
-  router.post("/logout-all", authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  router.post("/logout-all", csrfProtection(), authenticate, async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Get user ID from req.user (set by authenticate middleware)
       const userId = req.user?.sub;
@@ -300,8 +304,8 @@ export function authController(
     }
   };
 
-  router.post("/reset-password/request", handlePasswordResetRequest);
-  router.post("/request-password-reset", handlePasswordResetRequest);
+  router.post("/reset-password/request", csrfProtection(), handlePasswordResetRequest);
+  router.post("/request-password-reset", csrfProtection(), handlePasswordResetRequest);
 
   // Validate password reset token endpoint
   router.post("/reset-password/validate", async (req: Request, res: Response, next: NextFunction) => {
@@ -358,11 +362,11 @@ export function authController(
     }
   };
 
-  router.post("/reset-password/confirm", handlePasswordResetConfirm);
-  router.post("/reset-password", handlePasswordResetConfirm);
+  router.post("/reset-password/confirm", csrfProtection(), handlePasswordResetConfirm);
+  router.post("/reset-password", csrfProtection(), handlePasswordResetConfirm);
 
   // Request email verification resend endpoint
-  router.post("/resend-verification", async (req: Request, res: Response, next: NextFunction) => {
+  router.post("/resend-verification", csrfProtection(), async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { email } = req.body;
 

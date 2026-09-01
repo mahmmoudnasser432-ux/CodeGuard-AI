@@ -344,14 +344,20 @@ describe("Auth Integration Tests", () => {
         });
 
       accessToken = loginResponse.body.accessToken;
-      const setCookies = loginResponse.headers["set-cookie"];
-      authCookie = setCookies ? setCookies[0].split(";")[0] : "";
+      const setCookies: string[] = loginResponse.headers["set-cookie"] || [];
+      const refreshCookie = setCookies.find((c) => c.startsWith("codeguard_refresh_token="))?.split(";")[0];
+      const csrfCookie = setCookies.find((c) => c.startsWith("codeguard_csrf_token="))?.split(";")[0];
+      const csrfToken = csrfCookie?.replace("codeguard_csrf_token=", "");
+      authCookie = [refreshCookie, csrfCookie].filter(Boolean).join("; ");
+      (this as any).csrfToken = csrfToken;
     });
 
     it("should refresh access token with valid refresh token", async () => {
+      const csrfToken = (this as any).csrfToken;
       const response = await request(app)
         .post("/api/auth/refresh")
         .set("Cookie", authCookie)
+        .set("X-CSRF-Token", csrfToken || "")
         .expect(200);
 
       expect(response.body).toHaveProperty("accessToken");
@@ -361,9 +367,11 @@ describe("Auth Integration Tests", () => {
     });
 
     it("should return 401 for invalid refresh token", async () => {
+      const csrfToken = (this as any).csrfToken;
       await request(app)
         .post("/api/auth/refresh")
-        .set("Cookie", "codeguard_refresh_token=invalid.refresh.token")
+        .set("Cookie", `codeguard_refresh_token=invalid.refresh.token; codeguard_csrf_token=${csrfToken}`)
+        .set("X-CSRF-Token", csrfToken || "")
         .expect(401);
     });
 
@@ -377,6 +385,7 @@ describe("Auth Integration Tests", () => {
   describe("POST /api/auth/logout", () => {
     let accessToken: string;
     let authCookie: string;
+    let csrfToken: string;
 
     beforeEach(async () => {
       // Create and verify a user
@@ -411,8 +420,11 @@ describe("Auth Integration Tests", () => {
         });
 
       accessToken = loginResponse.body.accessToken;
-      const setCookies = loginResponse.headers["set-cookie"];
-      authCookie = setCookies ? setCookies[0].split(";")[0] : "";
+      const setCookies: string[] = loginResponse.headers["set-cookie"] || [];
+      const refreshCookie = setCookies.find((c) => c.startsWith("codeguard_refresh_token="))?.split(";")[0];
+      const csrfCookie = setCookies.find((c) => c.startsWith("codeguard_csrf_token="))?.split(";")[0];
+      csrfToken = csrfCookie ? csrfCookie.replace("codeguard_csrf_token=", "") : "";
+      authCookie = [refreshCookie, csrfCookie].filter(Boolean).join("; ");
     });
 
     it("should logout user with valid refresh token", async () => {
@@ -420,12 +432,14 @@ describe("Auth Integration Tests", () => {
         .post("/api/auth/logout")
         .set("Authorization", `Bearer ${accessToken}`)
         .set("Cookie", authCookie)
+        .set("X-CSRF-Token", csrfToken)
         .expect(204);
 
       // Verify refresh token is no longer valid
       await request(app)
         .post("/api/auth/refresh")
         .set("Cookie", authCookie)
+        .set("X-CSRF-Token", csrfToken)
         .expect(401);
     });
 
@@ -433,6 +447,7 @@ describe("Auth Integration Tests", () => {
       await request(app)
         .post("/api/auth/logout")
         .set("Cookie", authCookie)
+        .set("X-CSRF-Token", csrfToken)
         .expect(401);
     });
   });
@@ -441,6 +456,8 @@ describe("Auth Integration Tests", () => {
     let accessToken: string;
     let authCookie1: string;
     let authCookie2: string;
+    let csrfToken1: string;
+    let csrfToken2: string;
 
     beforeEach(async () => {
       // Create and verify a user
@@ -482,10 +499,17 @@ describe("Auth Integration Tests", () => {
         });
 
       accessToken = loginResponse1.body.accessToken;
-      const setCookies1 = loginResponse1.headers["set-cookie"];
-      authCookie1 = setCookies1 ? setCookies1[0].split(";")[0] : "";
-      const setCookies2 = loginResponse2.headers["set-cookie"];
-      authCookie2 = setCookies2 ? setCookies2[0].split(";")[0] : "";
+      const setCookies1: string[] = loginResponse1.headers["set-cookie"] || [];
+      const refreshCookie1 = setCookies1.find((c) => c.startsWith("codeguard_refresh_token="))?.split(";")[0];
+      const csrfCookie1 = setCookies1.find((c) => c.startsWith("codeguard_csrf_token="))?.split(";")[0];
+      csrfToken1 = csrfCookie1 ? csrfCookie1.replace("codeguard_csrf_token=", "") : "";
+      authCookie1 = [refreshCookie1, csrfCookie1].filter(Boolean).join("; ");
+
+      const setCookies2: string[] = loginResponse2.headers["set-cookie"] || [];
+      const refreshCookie2 = setCookies2.find((c) => c.startsWith("codeguard_refresh_token="))?.split(";")[0];
+      const csrfCookie2 = setCookies2.find((c) => c.startsWith("codeguard_csrf_token="))?.split(";")[0];
+      csrfToken2 = csrfCookie2 ? csrfCookie2.replace("codeguard_csrf_token=", "") : "";
+      authCookie2 = [refreshCookie2, csrfCookie2].filter(Boolean).join("; ");
     });
 
     it("should logout user from all sessions", async () => {
@@ -498,11 +522,13 @@ describe("Auth Integration Tests", () => {
       await request(app)
         .post("/api/auth/refresh")
         .set("Cookie", authCookie1)
+        .set("X-CSRF-Token", csrfToken1)
         .expect(401);
 
       await request(app)
         .post("/api/auth/refresh")
         .set("Cookie", authCookie2)
+        .set("X-CSRF-Token", csrfToken2)
         .expect(401);
     });
 
