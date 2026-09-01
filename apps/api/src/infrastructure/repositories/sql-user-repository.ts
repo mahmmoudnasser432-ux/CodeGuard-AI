@@ -37,7 +37,7 @@ export class SqlUserRepository implements UserRepository {
             INSERT INTO dbo.UserRoles (UserId, RoleId)
             SELECT @id, r.Id
             FROM STRING_SPLIT(@roles, ',') AS s
-            INNER JOIN dbo.Roles r ON s.value = r.Name;
+            INNER JOIN dbo.Roles r ON (s.value = r.Name OR s.value = CAST(r.Id AS NVARCHAR(36)));
           END
         END
         ELSE
@@ -50,7 +50,7 @@ export class SqlUserRepository implements UserRepository {
             INSERT INTO dbo.UserRoles (UserId, RoleId)
             SELECT @id, r.Id
             FROM STRING_SPLIT(@roles, ',') AS s
-            INNER JOIN dbo.Roles r ON s.value = r.Name;
+            INNER JOIN dbo.Roles r ON (s.value = r.Name OR s.value = CAST(r.Id AS NVARCHAR(36)));
           END
         END
       `);
@@ -79,7 +79,7 @@ export class SqlUserRepository implements UserRepository {
           INSERT INTO dbo.UserRoles (UserId, RoleId)
           SELECT @id, r.Id
           FROM STRING_SPLIT(@roles, ',') AS s
-          INNER JOIN dbo.Roles r ON s.value = r.Name;
+          INNER JOIN dbo.Roles r ON (s.value = r.Name OR s.value = CAST(r.Id AS NVARCHAR(36)));
         END
       `);
       console.log('User saved.');

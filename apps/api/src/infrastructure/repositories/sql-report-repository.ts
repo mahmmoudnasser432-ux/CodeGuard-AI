@@ -15,20 +15,19 @@ export class SqlReportRepository implements ReportRepository {
       .input('createdAt', report.createdAt ?? new Date())
       .query(`
         MERGE dbo.Reports AS target
-        USING (SELECT @id as Id, @analysisId as AnalysisId, @title as Title, @format as Format,
+        USING (SELECT @id as Id, @analysisId as AnalysisId, @format as Format,
                   @storageUrl as StorageUrl, @content as Content, @createdAt as CreatedAt) AS source
         ON target.Id = source.Id
         WHEN MATCHED THEN
           UPDATE SET
             AnalysisId = source.AnalysisId,
-            Title = source.Title,
             Format = source.Format,
             StorageUrl = source.StorageUrl,
             Content = source.Content,
             CreatedAt = source.CreatedAt
         WHEN NOT MATCHED THEN
-          INSERT INTO dbo.Reports (Id, AnalysisId, Title, Format, StorageUrl, Content, CreatedAt)
-          VALUES (source.Id, source.AnalysisId, source.Title, source.Format, source.StorageUrl,
+          INSERT (Id, AnalysisId, Format, StorageUrl, Content, CreatedAt)
+          VALUES (source.Id, source.AnalysisId, source.Format, source.StorageUrl,
                   source.Content, source.CreatedAt);
       `);
 

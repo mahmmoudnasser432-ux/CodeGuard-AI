@@ -9,7 +9,7 @@
     "start": "node dist/server.js",
     "lint": "eslint src --ext .ts",
     "test": "vitest run tests/health.test.ts",
-    "test:all": "vitest run",
+    "test:all": "vitest run --fileParallelism=false",
     "test:e2e": "vitest run tests/analyses.api.test.ts",
     "test:nvidia": "python -m pytest ../ai-service/tests/test_nvidia_provider.py -v",
     "test:providers": "python -m pytest ../ai-service/tests/test_nvidia_provider.py ../ai-service/tests/test_failover_scenarios.py ../ai-service/tests/test_provider_abstraction.py -v",

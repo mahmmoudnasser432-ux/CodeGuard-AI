@@ -15,7 +15,7 @@ export class SqlInterviewRepository implements InterviewRepository {
       .input('createdAt', session.createdAt ?? new Date())
       .query(`
         MERGE dbo.InterviewSessions AS target
-        USING (SELECT @id as Id, @title as Title, @candidateUserId as CandidateUserId,
+        USING (SELECT @id as Id, @candidateUserId as CandidateUserId,
                   @recruiterUserId as RecruiterUserId, @repositoryId as RepositoryId,
                   @status as Status, @createdAt as CreatedAt) AS source
         ON target.Id = source.Id
@@ -25,11 +25,10 @@ export class SqlInterviewRepository implements InterviewRepository {
             RecruiterUserId = source.RecruiterUserId,
             RepositoryId = source.RepositoryId,
             Status = source.Status,
-            Title = source.Title,
             CreatedAt = source.CreatedAt
         WHEN NOT MATCHED THEN
-          INSERT INTO dbo.Interviews (Id, Title, CandidateUserId, RecruiterUserId, RepositoryId, Status, CreatedAt)
-          VALUES (source.Id, source.Title, source.CandidateUserId, source.RecruiterUserId,
+          INSERT (Id, CandidateUserId, RecruiterUserId, RepositoryId, Status, CreatedAt)
+          VALUES (source.Id, source.CandidateUserId, source.RecruiterUserId,
                   source.RepositoryId, source.Status, source.CreatedAt);
       `);
 

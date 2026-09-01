@@ -27,7 +27,7 @@ export class SqlNotificationRepository implements NotificationRepository {
             ReadAt = source.ReadAt,
             CreatedAt = source.CreatedAt
         WHEN NOT MATCHED THEN
-          INSERT INTO dbo.Notifications (Id, UserId, Type, Title, Body, ReadAt, CreatedAt)
+          INSERT (Id, UserId, Type, Title, Body, ReadAt, CreatedAt)
           VALUES (source.Id, source.UserId, source.Type, source.Title,
                   source.Body, source.ReadAt, source.CreatedAt);
       `);
