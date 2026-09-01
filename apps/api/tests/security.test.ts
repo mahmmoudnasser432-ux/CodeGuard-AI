@@ -12,6 +12,7 @@ describe("Phase 1 Security: Environment Configuration Validation", () => {
     JWT_ACCESS_SECRET: "a-super-secret-access-token-key-for-prod-32bytes",
     JWT_REFRESH_SECRET: "a-super-secret-refresh-token-key-for-prod-32bytes",
     SQLSERVER_PASSWORD: "ProdSqlPassword123!",
+    REDIS_URL: "rediss://redis.internal.codeguard.ai:6379",
   };
 
   it("accepts valid production configuration", () => {

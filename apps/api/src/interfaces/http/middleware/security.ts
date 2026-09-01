@@ -1,7 +1,8 @@
 import cors from "cors";
-import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { env } from "../../../config/env.js";
+
+export { apiRateLimiter, createApiRateLimiter, RATE_LIMIT_KEY_PREFIX } from "./rate-limiter.js";
 
 export const securityHeaders = helmet({
   contentSecurityPolicy: {
@@ -53,12 +54,4 @@ export const corsPolicy = cors({
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "x-user-id", "X-CSRF-Token", "x-csrf-token"],
-});
-
-export const apiRateLimiter = rateLimit({
-  windowMs: 60_000,
-  limit: 120,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "TOO_MANY_REQUESTS", message: "Rate limit exceeded. Please try again later." },
 });

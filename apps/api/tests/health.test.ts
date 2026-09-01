@@ -23,5 +23,6 @@ describe("health", () => {
     expect(response.body.status).toBe("ready");
     expect(response.body.service).toBe("codeguard-api");
     expect(response.body).toHaveProperty("dependencies");
+    expect(response.body.dependencies).toHaveProperty("redis");
   });
 });

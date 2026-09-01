@@ -15,6 +15,7 @@ import { SqlEmailVerificationTokenRepository } from "./infrastructure/repositori
 import { AuthService } from "./application/services/auth-service.js";
 import { EmailService } from "./application/services/email-service.js";
 import { sqlPool } from "./infrastructure/database/sqlserver.js";
+import { getRedisHealth } from "./infrastructure/redis/client.js";
 import { env } from "./config/env.js";
 
 const startTime = Date.now();
@@ -24,7 +25,9 @@ export function createApp() {
   const pinoHttpExport = pinoHttpModule as unknown as { default?: () => RequestHandler } & (() => RequestHandler);
   const pinoHttp = pinoHttpExport.default ?? pinoHttpExport;
 
-  // Trust reverse proxy for Railway/Vercel rate limiting and SSL detection
+  // Trust exactly one reverse-proxy/ingress hop (e.g. ALB, Cloudflare, Ingress-NGINX).
+  // req.ip is used for client rate-limit identity; the application does not parse X-Forwarded-For directly.
+  // The upstream ingress/load balancer must sanitize client-supplied forwarding headers to prevent IP spoofing.
   app.set("trust proxy", 1);
 
   // Create shared instances
@@ -48,8 +51,6 @@ export function createApp() {
   app.use(pinoHttp());
   app.use(securityHeaders);
   app.use(corsPolicy);
-  app.use(apiRateLimiter);
-  app.use(express.json({ limit: "1mb" }));
 
   // Liveness health endpoint
   app.get("/health", (_req, res) => {
@@ -93,10 +94,14 @@ export function createApp() {
       dependencies: {
         aiService: aiServiceStatus,
         database: databaseStatus,
+        redis: getRedisHealth(),
       },
       timestamp: new Date().toISOString(),
     });
   });
+
+  app.use(apiRateLimiter);
+  app.use(express.json({ limit: "1mb" }));
 
   app.use("/docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
 

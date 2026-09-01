@@ -40,6 +40,7 @@ flowchart TD
 
   subgraph Data ["Data & Services"]
     SQLServer[("Microsoft SQL Server")]
+    Redis[("Redis (rate-limit counters)")]
     Mailpit["Mailpit SMTP (:1025 / :8025)"]
   end
 
@@ -138,7 +139,25 @@ To protect browser clients against Cross-Site Request Forgery on cookie-dependen
 
 ---
 
-## 7. Database Architecture & Migrations
+## 7. Distributed Rate Limiting & Redis
+
+* **Distributed Rate Limiting Engine**: Backed by Redis via `rate-limit-redis` and `express-rate-limit`.
+* **Shared Cluster Counters**: Synchronizes request counters across multiple API replicas using namespace `codeguard:ratelimit:`.
+* **Standard Headers**: Emits `RateLimit-Policy`, `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` headers.
+* **Client Identification & Ingress Trust**:
+  * Identity is derived from Express `req.ip` configured for exactly one trusted reverse-proxy/ingress hop (`app.set("trust proxy", 1)`).
+  * The application does **not** parse `X-Forwarded-For` headers directly.
+  * In production, the upstream ingress/load balancer must sanitize client-supplied forwarding headers to prevent IP spoofing.
+* **Credential Isolation**: Redis keys and log traces strictly exclude JWT tokens, session identifiers, passwords, and cookies.
+* **Failure Semantics & Safe Degradation**:
+  * **Redis connected**: Distributed rate limiting across all API replicas.
+  * **Redis unavailable**: Bounded per-process `MemoryStore` fallback.
+  * Fallback is **not** distributed across replicas (each replica enforces the configured limit locally).
+  * The system does **not** fail open to unlimited requests; limits remain enforced per process with throttled warning logs.
+
+---
+
+## 8. Database Architecture & Migrations
 
 * **Database Engine**: Microsoft SQL Server (T-SQL).
 * **Deterministic Migration Engine** (`apps/api/src/migration-runner.ts`):
@@ -151,15 +170,17 @@ To protect browser clients against Cross-Site Request Forgery on cookie-dependen
 
 ---
 
-## 8. Docker Architecture
+## 9. Docker Architecture
 
 ### Local Development (`docker-compose.yml`)
 * `codeguard-web`: Next.js frontend on port `3000`.
 * `codeguard-api`: Express API on port `5000`, connects to SQL Server Express on the host machine via `host.docker.internal:54833`.
+* `codeguard-redis`: Redis 7 on port `6379` for distributed rate limiting.
 * `codeguard-ai-service`: FastAPI service on port `8000`.
 * `codeguard-mailpit`: SMTP development server on port `1025` (SMTP) and `8025` (Web UI).
 
 ### Production Topology (`docker-compose.prod.yml`)
+* Managed Redis or internal Redis cluster via `REDIS_URL` (no public port published).
 * AI Service internal-only network isolation (not exposed on host ports).
 * Mandatory TLS certificate validation for remote managed SQL Server.
 * Cloud SMTP provider configuration.
@@ -167,7 +188,7 @@ To protect browser clients against Cross-Site Request Forgery on cookie-dependen
 
 ---
 
-## 9. Environment Configuration
+## 10. Environment Configuration
 
 ### Common / Local Development (`.env`)
 ```env
@@ -186,6 +207,11 @@ AUTH_COOKIE_SAME_SITE=lax
 AUTH_COOKIE_PATH=/api/auth
 CSRF_COOKIE_NAME=codeguard_csrf_token
 CSRF_COOKIE_PATH=/
+
+# Rate Limiting & Redis
+REDIS_URL=redis://localhost:6379
+RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_MAX_REQUESTS=120
 
 # SQL Server (Host Express instance)
 SQLSERVER_HOST=host.docker.internal
@@ -218,19 +244,22 @@ JWT_REFRESH_SECRET=<high-entropy-64-char-random-secret>
 AUTH_COOKIE_SECURE=true
 SQLSERVER_ENCRYPT=true
 SQLSERVER_TRUST_SERVER_CERTIFICATE=false
+REDIS_URL=rediss://your-managed-redis-endpoint:6379
+RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_MAX_REQUESTS=120
 FRONTEND_URL=https://app.yourdomain.com
 CORS_ORIGIN=https://app.yourdomain.com
 ```
 
 ---
 
-## 10. API Endpoints
+## 11. API Endpoints
 
 ### Health & Readiness
 | Method | Path | Description |
 | :--- | :--- | :--- |
 | `GET` | `/health` | Liveness check reporting service status and uptime. |
-| `GET` | `/ready` | Deep readiness check evaluating SQL Server and AI service connectivity. |
+| `GET` | `/ready` | Deep readiness check evaluating SQL Server, AI service, and Redis connectivity. |
 
 ### Authentication & CSRF
 | Method | Path | Auth / Protection | Description |
@@ -256,7 +285,7 @@ CORS_ORIGIN=https://app.yourdomain.com
 
 ---
 
-## 11. Security Hardening Matrix
+## 12. Security Hardening Matrix
 
 * ✅ **Production JWT Secret Enforcement**: Startup rejects default or predictable secrets in production mode.
 * ✅ **Strict CORS Policy**: Disallows wildcard/arbitrary origins; validates explicit origins.
@@ -268,38 +297,42 @@ CORS_ORIGIN=https://app.yourdomain.com
 * ✅ **HttpOnly Cookie Refresh Tokens**: Scoped to `/api/auth`, isolated from browser JavaScript.
 * ✅ **Refresh Token Rotation & Revocation**: One-time use refresh tokens persisted and revocable server-side.
 * ✅ **Double-Submit CSRF Protection**: Timing-safe token comparison and origin validation on state mutations.
+* ✅ **Distributed Redis Rate Limiting**: Shared cluster counters with namespace prefixing, safe degraded failover, and sanitized logs.
 
 ---
 
-## 12. Testing & Verification
+## 13. Testing & Verification
 
 ### Test Suites & Status
 
 ```bash
-# 1. Run all Backend API Vitest Suites (111 tests in 9 files)
+# 1. Run all Backend API Vitest Suites (125 tests in 10 files)
 npm run test:all -w apps/api
 
-# 2. Run Dedicated CSRF Protection Suite (23 tests)
+# 2. Run Distributed Redis Rate Limiter Suite (14 tests)
+npx vitest run tests/rate-limit.test.ts -w apps/api
+
+# 3. Run Dedicated CSRF Protection Suite (23 tests)
 npx vitest run tests/csrf.test.ts -w apps/api
 
-# 3. Run HttpOnly Cookie & Session Suite (9 tests)
+# 4. Run HttpOnly Cookie & Session Suite (9 tests)
 npx vitest run tests/auth.cookies.test.ts -w apps/api
 
-# 4. Run AI Service Pytest Suite (65 tests)
+# 5. Run AI Service Pytest Suite (65 tests)
 python -m pytest apps/ai-service/tests -q
 
-# 5. Full Monorepo Build Check (TypeScript + Next.js Turbopack)
+# 6. Full Monorepo Build Check (TypeScript + Next.js Turbopack)
 npm run build
 ```
 
 **Verified Test Results**:
-* **Backend API (`apps/api`)**: `111 passed`, `2 skipped` (113 total)
+* **Backend API (`apps/api`)**: `125 passed`, `2 skipped` (127 total across 10 test files)
 * **AI Service (`apps/ai-service`)**: `65 passed` (100%)
 * **TypeScript & Web Build**: Clean compilation without errors or warnings.
 
 ---
 
-## 13. Local Development Quick Start
+## 14. Local Development Quick Start
 
 ### Prerequisites
 * Node.js 20+ and npm 10+
@@ -319,7 +352,7 @@ npm run build
 2. **Configure Environment Variables**:
    ```bash
    cp .env.example .env
-   # Edit .env with your local SQL Server password and AI provider keys
+   # Edit .env with your local SQL Server password, AI provider keys, and Redis URL
    ```
 
 3. **Start Local Docker Services**:
@@ -338,30 +371,31 @@ npm run build
    * **API Readiness**: `http://localhost:5000/ready`
    * **AI Service Health**: `http://localhost:8000/health`
    * **Mailpit Web UI (Emails)**: `http://localhost:8025`
+   * **Redis Server**: `localhost:6379`
 
 ---
 
-## 14. Production Readiness Status
+## 15. Production Readiness Status
 
 > [!WARNING]
 > **Production Status: Hardened Staging / Pre-Production Baseline**
 >
-> While CodeGuard AI has undergone substantial security hardening across authentication, migrations, SQL TLS, and CSRF protection, the application is **not yet fully production-ready**.
+> While CodeGuard AI has undergone substantial security hardening across authentication, migrations, SQL TLS, CSRF protection, and distributed rate limiting, the application is **not yet fully production-ready**.
 
 ### Remaining Pre-Production Blockers:
-1. **Distributed Rate Limiting & Blacklist (Redis)**: Current rate limiters and token blacklists operate in-memory and require Redis for clustered horizontal scaling.
-2. **Account Lockout & Brute-Force Defense**: Dedicated persistent failed-login tracking table and progressive lockout delays.
-3. **Cloud Secret Manager Integration**: Automated secret injection via AWS Secrets Manager, Azure Key Vault, or GCP Secret Manager.
-4. **Managed Cloud Database Provisioning**: Transitioning from local host SQL Server Express to Azure SQL or Amazon RDS with CA certificates.
-5. **Ingress / Reverse Proxy**: Edge TLS termination with Web Application Firewall (WAF) rules.
+1. **Account Lockout & Brute-Force Defense**: Dedicated persistent failed-login tracking table and progressive lockout delays.
+2. **Cloud Secret Manager Integration**: Automated secret injection via AWS Secrets Manager, Azure Key Vault, or GCP Secret Manager.
+3. **Managed Cloud Database Provisioning**: Transitioning from local host SQL Server Express to Azure SQL or Amazon RDS with CA certificates.
+4. **Ingress / Reverse Proxy**: Edge TLS termination with Web Application Firewall (WAF) rules.
 
 ---
 
-## 15. Recent Security Hardening Changelog
+## 16. Recent Security Hardening Changelog
 
 * **Commit `954e830`** (Phase 1): Production security hardening — enforced strong JWT secrets, strict CORS policy, cryptographic JTI tokens, sanitized production error responses, and AI API key log redaction.
 * **Commit `5fe2a94`** (Phase 2A): Deterministic database migrations — introduced `dbo._migrations` history table, SHA-256 checksum verification, and transactional execution.
 * **Commit `7ec4ae6`** (Phase 2B): SQL Server TLS hardening — enforced `SQLSERVER_ENCRYPT=true` and `SQLSERVER_TRUST_SERVER_CERTIFICATE=false` validation in production.
 * **Commit `9373503`**: SQL Server schema alignment and repository query compatibility fixes.
 * **Commit `402959b`** (Phase 3): HttpOnly refresh-token cookies — removed refresh tokens from browser `localStorage` and JSON responses, enforced `/api/auth` path scoping.
-* **Phase 3B (Current)**: Robust Double-Submit CSRF protection — implemented non-HttpOnly `codeguard_csrf_token`, `X-CSRF-Token` header verification, constant-time token comparison, neutral cookie utility architecture, and strict Origin/Referer enforcement.
+* **Commit `7c3b338` / Phase 3B**: Robust Double-Submit CSRF protection — implemented non-HttpOnly `codeguard_csrf_token`, `X-CSRF-Token` header verification, constant-time token comparison, neutral cookie utility architecture, and strict Origin/Referer enforcement.
+* **Phase 4A (Current)**: Distributed Redis-backed Rate Limiting — implemented cluster-synchronized counters with namespace `codeguard:ratelimit:`, configurable window/limits, degraded in-memory failover, and credential masking.

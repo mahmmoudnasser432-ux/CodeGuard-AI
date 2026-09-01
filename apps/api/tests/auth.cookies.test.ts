@@ -126,6 +126,7 @@ describe("Auth HttpOnly Cookie & Token Storage Hardening", () => {
         JWT_ACCESS_SECRET: "0123456789abcdef0123456789abcdef",
         JWT_REFRESH_SECRET: "fedcba9876543210fedcba9876543210",
         SQLSERVER_PASSWORD: "StrongProductionDBPassword#123",
+        REDIS_URL: "rediss://redis.internal.codeguard.ai:6379",
       });
       const options = getRefreshCookieOptions(prodParsed as any);
 

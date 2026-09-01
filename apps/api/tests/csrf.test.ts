@@ -173,6 +173,7 @@ describe("Phase 3B CSRF Protection Test Suite", () => {
         SQLSERVER_PASSWORD: "ProdSqlPassword123!",
         SQLSERVER_ENCRYPT: "true",
         SQLSERVER_TRUST_SERVER_CERTIFICATE: "false",
+        REDIS_URL: "rediss://redis.internal.codeguard.ai:6379",
       });
 
       expect(isAllowedOrigin("https://arbitrary-subdomain.vercel.app", prodEnv)).toBe(false);
@@ -191,6 +192,7 @@ describe("Phase 3B CSRF Protection Test Suite", () => {
         SQLSERVER_PASSWORD: "ProdSqlPassword123!",
         SQLSERVER_ENCRYPT: "true",
         SQLSERVER_TRUST_SERVER_CERTIFICATE: "false",
+        REDIS_URL: "rediss://redis.internal.codeguard.ai:6379",
       });
 
       expect(isAllowedOrigin("http://localhost:3000", prodEnv)).toBe(false);

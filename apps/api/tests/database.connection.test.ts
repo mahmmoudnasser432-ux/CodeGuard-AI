@@ -15,6 +15,7 @@ describe("SQL Server Database Connection & TLS Hardening", () => {
     SQLSERVER_DATABASE: "CodeGuardAI",
     SQLSERVER_USER: "codeguard_app",
     SQLSERVER_PASSWORD: "StrongProductionDBPassword#123",
+    REDIS_URL: "rediss://redis.internal.codeguard.ai:6379",
   };
 
   // Requirement 1: production + unset trustServerCertificate -> false

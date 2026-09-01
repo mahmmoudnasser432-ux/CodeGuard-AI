@@ -46,7 +46,12 @@ export const envSchema = z
     SQLSERVER_POOL_MIN: z.coerce.number().int().nonnegative().optional(),
     SQLSERVER_POOL_MAX: z.coerce.number().int().positive().default(20),
     SQLSERVER_POOL_IDLE_TIMEOUT: z.coerce.number().int().positive().default(30000),
-    REDIS_URL: z.string().default("redis://localhost:6379"),
+    REDIS_URL: z.preprocess(
+      (val) => (typeof val === "string" && val.trim() === "" ? undefined : val),
+      z.string().optional()
+    ),
+    RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+    RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(120),
     // Email configuration
     EMAIL_HOST: z.string().default("localhost"),
     EMAIL_PORT: z.coerce.number().int().default(587),
@@ -154,8 +159,43 @@ export const envSchema = z
           message: "SQLSERVER_TRUST_SERVER_CERTIFICATE must be false in production. Disabling TLS certificate validation in production is not permitted.",
         });
       }
+
+      // 7. REDIS_URL is required for distributed rate limiting in production
+      if (!data.REDIS_URL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["REDIS_URL"],
+          message: "REDIS_URL is required in production for distributed rate limiting. Do not default to localhost Redis.",
+        });
+      } else if (!isRedisConnectionUrl(data.REDIS_URL)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["REDIS_URL"],
+          message: "REDIS_URL must be a redis:// or rediss:// connection URL in production.",
+        });
+      } else if (isLoopbackRedisUrl(data.REDIS_URL)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["REDIS_URL"],
+          message: "REDIS_URL must not point to localhost in production. Use a managed Redis service or an internal Docker/network hostname.",
+        });
+      }
     }
   });
+
+export function isRedisConnectionUrl(value: string): boolean {
+  return value.startsWith("redis://") || value.startsWith("rediss://");
+}
+
+export function isLoopbackRedisUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return false;
+  }
+}
 
 export function parseEnv(rawEnv: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env) {
   const parsed = envSchema.parse(rawEnv);
