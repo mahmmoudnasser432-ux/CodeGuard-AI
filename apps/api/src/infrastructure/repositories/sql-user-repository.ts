@@ -1,6 +1,6 @@
 import { sqlPool } from "../database/sqlserver.js";
 import { User } from "../../domain/entities/user.js";
-import { UserRepository } from "../../domain/repositories/user-repository.js";
+import { UserRepository, UserAuthDetails } from "../../domain/repositories/user-repository.js";
 import bcrypt from "bcryptjs";
 
 export class SqlUserRepository implements UserRepository {
@@ -180,6 +180,92 @@ export class SqlUserRepository implements UserRepository {
     }));
   }
 
+  async findAuthDetailsByEmail(email: string): Promise<UserAuthDetails | null> {
+    const pool = await sqlPool.connect();
+    const result = await pool.request()
+      .input('email', email)
+      .query(`
+        SELECT u.Id, u.Email, u.DisplayName, u.IsEmailVerified, u.MfaEnabled,
+               u.PasswordHash, u.FailedLoginCount, u.LockedUntil,
+               STRING_AGG(r.Name, ',') AS Roles
+        FROM dbo.Users u
+        LEFT JOIN dbo.UserRoles ur ON u.Id = ur.UserId
+        LEFT JOIN dbo.Roles r ON ur.RoleId = r.Id
+        WHERE u.Email = @email
+        GROUP BY u.Id, u.Email, u.DisplayName, u.IsEmailVerified, u.MfaEnabled,
+                 u.PasswordHash, u.FailedLoginCount, u.LockedUntil
+      `);
+
+    const record = result.recordset[0];
+    if (!record) return null;
+
+    return {
+      user: {
+        id: record.Id,
+        email: record.Email,
+        displayName: record.DisplayName,
+        roles: record.Roles ? record.Roles.split(',').filter(Boolean) : [],
+        isEmailVerified: !!record.IsEmailVerified,
+        mfaEnabled: !!record.MfaEnabled
+      },
+      passwordHash: record.PasswordHash ?? null,
+      failedLoginCount: typeof record.FailedLoginCount === 'number' ? record.FailedLoginCount : 0,
+      lockedUntil: record.LockedUntil ? new Date(record.LockedUntil) : null
+    };
+  }
+
+  async incrementFailedLogins(
+    userId: string,
+    maxAttempts: number,
+    lockoutDurationMs: number
+  ): Promise<{ failedLoginCount: number; lockedUntil: Date | null }> {
+    const pool = await sqlPool.connect();
+    const result = await pool.request()
+      .input('userId', userId)
+      .input('maxAttempts', maxAttempts)
+      .input('lockoutDurationMs', lockoutDurationMs)
+      .query(`
+        UPDATE dbo.Users
+        SET
+          FailedLoginCount = CASE
+            WHEN LockedUntil IS NOT NULL AND LockedUntil <= SYSUTCDATETIME() THEN 1
+            ELSE FailedLoginCount + 1
+          END,
+          LockedUntil = CASE
+            WHEN (CASE WHEN LockedUntil IS NOT NULL AND LockedUntil <= SYSUTCDATETIME() THEN 1 ELSE FailedLoginCount + 1 END) >= @maxAttempts
+              THEN DATEADD(millisecond, @lockoutDurationMs, SYSUTCDATETIME())
+            ELSE NULL
+          END,
+          UpdatedAt = SYSUTCDATETIME()
+        OUTPUT INSERTED.FailedLoginCount, INSERTED.LockedUntil
+        WHERE Id = @userId;
+      `);
+
+    const updated = result.recordset[0];
+    if (!updated) {
+      return { failedLoginCount: 0, lockedUntil: null };
+    }
+
+    return {
+      failedLoginCount: updated.FailedLoginCount,
+      lockedUntil: updated.LockedUntil ? new Date(updated.LockedUntil) : null
+    };
+  }
+
+  async resetFailedLogins(userId: string): Promise<void> {
+    const pool = await sqlPool.connect();
+    await pool.request()
+      .input('userId', userId)
+      .query(`
+        UPDATE dbo.Users
+        SET
+          FailedLoginCount = 0,
+          LockedUntil = NULL,
+          UpdatedAt = SYSUTCDATETIME()
+        WHERE Id = @userId;
+      `);
+  }
+
   async findByCredentials(email: string, password: string): Promise<User | null> {
     const pool = await sqlPool.connect();
     const result = await pool.request()
@@ -198,9 +284,8 @@ export class SqlUserRepository implements UserRepository {
 
     const record = result.recordset[0];
     if (!record) {
-      // User not found - still verify password to prevent timing attacks
-      // Hash a dummy password to take similar time as real hash verification
-      await bcrypt.compare("dummy", "$2a$12$dummyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+      // User not found - verify against dummy hash to prevent timing attacks
+      await bcrypt.compare("dummy", "$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4h/4q/YvKe");
       return null;
     }
 
@@ -209,7 +294,6 @@ export class SqlUserRepository implements UserRepository {
     // Verify the password against the stored hash
     const passwordHash = record.PasswordHash;
     if (passwordHash === null || passwordHash === undefined) {
-      // No password hash stored - treat as invalid credentials
       return null;
     }
     const isValid = await bcrypt.compare(password, String(passwordHash));

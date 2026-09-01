@@ -139,7 +139,28 @@ To protect browser clients against Cross-Site Request Forgery on cookie-dependen
 
 ---
 
-## 7. Distributed Rate Limiting & Redis
+## 7. Account Lockout & Brute-Force Defense
+
+* **Persistent SQL-Backed State**: Login failure counters and lockout timestamps are persisted directly in `dbo.Users` via `FailedLoginCount INT` and `LockedUntil DATETIME2`.
+* **Atomic T-SQL Increments**: Increments and threshold checks execute within a single atomic T-SQL `UPDATE ... OUTPUT` statement, preventing read-modify-write lost updates under concurrent attack bursts.
+* **Configurable Lockout Policy**:
+  * `MAX_FAILED_LOGIN_ATTEMPTS`: Maximum consecutive failed logins before lockout (default: `5`).
+  * `ACCOUNT_LOCKOUT_DURATION`: Lockout duration string (e.g. `15m`, `1h`, `7d`, default: `15m`).
+* **Threshold & Lockout Behavior**:
+  * Once the threshold is reached, `LockedUntil` is set to database UTC time (`SYSUTCDATETIME()`) + configured duration.
+  * While an account is locked (`LockedUntil > SYSUTCDATETIME()`), all authentication attempts immediately return `403 { error: "ACCOUNT_LOCKED" }` without executing expensive bcrypt password hashing operations.
+* **Automatic Reset on Successful Authentication**:
+  * Providing the correct password for an unlocked account resets `FailedLoginCount` to `0` and clears `LockedUntil` to `NULL`.
+  * If a lock has expired (`LockedUntil <= SYSUTCDATETIME()`), a subsequent successful login clears the expired lock and grants access.
+* **Timing Attack Mitigation**:
+  * When a login is attempted for a non-existent email address, the API performs a dummy bcrypt verification against a valid precomputed work-factor-12 hash (`DUMMY_BCRYPT_HASH`). This ensures uniform processing time while creating zero database records.
+* **Defense-in-Depth Layering**:
+  * **Redis Rate Limiting (Phase 4A)**: Throttles high-frequency IP-based request bursts across distributed API replicas.
+  * **SQL Account Lockout (Phase 4B)**: Enforces persistent, per-account brute-force protections across credential stuffing attempts targeting specific user identities.
+
+---
+
+## 8. Distributed Rate Limiting & Redis
 
 * **Distributed Rate Limiting Engine**: Backed by Redis via `rate-limit-redis` and `express-rate-limit`.
 * **Shared Cluster Counters**: Synchronizes request counters across multiple API replicas using namespace `codeguard:ratelimit:`.
@@ -157,7 +178,7 @@ To protect browser clients against Cross-Site Request Forgery on cookie-dependen
 
 ---
 
-## 8. Database Architecture & Migrations
+## 9. Database Architecture & Migrations
 
 * **Database Engine**: Microsoft SQL Server (T-SQL).
 * **Deterministic Migration Engine** (`apps/api/src/migration-runner.ts`):
@@ -170,7 +191,7 @@ To protect browser clients against Cross-Site Request Forgery on cookie-dependen
 
 ---
 
-## 9. Docker Architecture
+## 10. Docker Architecture
 
 ### Local Development (`docker-compose.yml`)
 * `codeguard-web`: Next.js frontend on port `3000`.
@@ -188,7 +209,7 @@ To protect browser clients against Cross-Site Request Forgery on cookie-dependen
 
 ---
 
-## 10. Environment Configuration
+## 11. Environment Configuration
 
 ### Common / Local Development (`.env`)
 ```env
@@ -207,6 +228,10 @@ AUTH_COOKIE_SAME_SITE=lax
 AUTH_COOKIE_PATH=/api/auth
 CSRF_COOKIE_NAME=codeguard_csrf_token
 CSRF_COOKIE_PATH=/
+
+# Account Lockout & Brute-Force Defense
+MAX_FAILED_LOGIN_ATTEMPTS=5
+ACCOUNT_LOCKOUT_DURATION=15m
 
 # Rate Limiting & Redis
 REDIS_URL=redis://localhost:6379
@@ -247,13 +272,15 @@ SQLSERVER_TRUST_SERVER_CERTIFICATE=false
 REDIS_URL=rediss://your-managed-redis-endpoint:6379
 RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX_REQUESTS=120
+MAX_FAILED_LOGIN_ATTEMPTS=5
+ACCOUNT_LOCKOUT_DURATION=15m
 FRONTEND_URL=https://app.yourdomain.com
 CORS_ORIGIN=https://app.yourdomain.com
 ```
 
 ---
 
-## 11. API Endpoints
+## 12. API Endpoints
 
 ### Health & Readiness
 | Method | Path | Description |
@@ -267,7 +294,7 @@ CORS_ORIGIN=https://app.yourdomain.com
 | `GET` | `/api/auth/csrf` | Public | Vends a CSRF token and sets `codeguard_csrf_token` cookie. |
 | `POST` | `/api/auth/register` | Public / Origin Check | Registers a user, sends verification email, sets CSRF cookie. |
 | `GET` | `/api/auth/verify-email/:token` | Public | Verifies email address via verification token. |
-| `POST` | `/api/auth/login` | Public / Origin Check | Authenticates credentials, issues access token in JSON & HttpOnly refresh cookie. |
+| `POST` | `/api/auth/login` | Public / Origin Check | Authenticates credentials with account lockout, issues access token & HttpOnly refresh cookie. |
 | `POST` | `/api/auth/refresh` | Cookie + CSRF Header | Rotates refresh token cookie and issues new access token. |
 | `POST` | `/api/auth/logout` | Bearer + Cookie + CSRF | Revokes current session and clears refresh token cookie. |
 | `POST` | `/api/auth/logout-all` | Bearer + Cookie + CSRF | Revokes all active sessions for the user. |
@@ -285,7 +312,7 @@ CORS_ORIGIN=https://app.yourdomain.com
 
 ---
 
-## 12. Security Hardening Matrix
+## 13. Security Hardening Matrix
 
 * ✅ **Production JWT Secret Enforcement**: Startup rejects default or predictable secrets in production mode.
 * ✅ **Strict CORS Policy**: Disallows wildcard/arbitrary origins; validates explicit origins.
@@ -298,41 +325,45 @@ CORS_ORIGIN=https://app.yourdomain.com
 * ✅ **Refresh Token Rotation & Revocation**: One-time use refresh tokens persisted and revocable server-side.
 * ✅ **Double-Submit CSRF Protection**: Timing-safe token comparison and origin validation on state mutations.
 * ✅ **Distributed Redis Rate Limiting**: Shared cluster counters with namespace prefixing, safe degraded failover, and sanitized logs.
+* ✅ **SQL-Backed Account Lockout & Brute-Force Defense**: Atomic SQL-level failure tracking, threshold lockout, bcrypt bypass on locked accounts, and dummy hash timing attack protection.
 
 ---
 
-## 13. Testing & Verification
+## 14. Testing & Verification
 
 ### Test Suites & Status
 
 ```bash
-# 1. Run all Backend API Vitest Suites (125 tests in 10 files)
+# 1. Run all Backend API Vitest Suites (141 tests in 11 files)
 npm run test:all -w apps/api
 
-# 2. Run Distributed Redis Rate Limiter Suite (14 tests)
+# 2. Run Account Lockout & Brute-Force Defense Suite (16 tests)
+npx vitest run tests/account-lockout.test.ts -w apps/api
+
+# 3. Run Distributed Redis Rate Limiter Suite (14 tests)
 npx vitest run tests/rate-limit.test.ts -w apps/api
 
-# 3. Run Dedicated CSRF Protection Suite (23 tests)
+# 4. Run Dedicated CSRF Protection Suite (23 tests)
 npx vitest run tests/csrf.test.ts -w apps/api
 
-# 4. Run HttpOnly Cookie & Session Suite (9 tests)
+# 5. Run HttpOnly Cookie & Session Suite (9 tests)
 npx vitest run tests/auth.cookies.test.ts -w apps/api
 
-# 5. Run AI Service Pytest Suite (65 tests)
+# 6. Run AI Service Pytest Suite (65 tests)
 python -m pytest apps/ai-service/tests -q
 
-# 6. Full Monorepo Build Check (TypeScript + Next.js Turbopack)
+# 7. Full Monorepo Build Check (TypeScript + Next.js Turbopack)
 npm run build
 ```
 
 **Verified Test Results**:
-* **Backend API (`apps/api`)**: `125 passed`, `2 skipped` (127 total across 10 test files)
+* **Backend API (`apps/api`)**: `141 passed`, `2 skipped` (143 total across 11 test files)
 * **AI Service (`apps/ai-service`)**: `65 passed` (100%)
 * **TypeScript & Web Build**: Clean compilation without errors or warnings.
 
 ---
 
-## 14. Local Development Quick Start
+## 15. Local Development Quick Start
 
 ### Prerequisites
 * Node.js 20+ and npm 10+
@@ -375,22 +406,21 @@ npm run build
 
 ---
 
-## 15. Production Readiness Status
+## 16. Production Readiness Status
 
 > [!WARNING]
 > **Production Status: Hardened Staging / Pre-Production Baseline**
 >
-> While CodeGuard AI has undergone substantial security hardening across authentication, migrations, SQL TLS, CSRF protection, and distributed rate limiting, the application is **not yet fully production-ready**.
+> While CodeGuard AI has undergone substantial security hardening across authentication, migrations, SQL TLS, CSRF protection, distributed rate limiting, and account lockout, the application is **not yet fully production-ready**.
 
 ### Remaining Pre-Production Blockers:
-1. **Account Lockout & Brute-Force Defense**: Dedicated persistent failed-login tracking table and progressive lockout delays.
-2. **Cloud Secret Manager Integration**: Automated secret injection via AWS Secrets Manager, Azure Key Vault, or GCP Secret Manager.
-3. **Managed Cloud Database Provisioning**: Transitioning from local host SQL Server Express to Azure SQL or Amazon RDS with CA certificates.
-4. **Ingress / Reverse Proxy**: Edge TLS termination with Web Application Firewall (WAF) rules.
+1. **Cloud Secret Manager Integration**: Automated secret injection via AWS Secrets Manager, Azure Key Vault, or GCP Secret Manager.
+2. **Managed Cloud Database Provisioning**: Transitioning from local host SQL Server Express to Azure SQL or Amazon RDS with CA certificates.
+3. **Ingress / Reverse Proxy**: Edge TLS termination with Web Application Firewall (WAF) rules.
 
 ---
 
-## 16. Recent Security Hardening Changelog
+## 17. Recent Security Hardening Changelog
 
 * **Commit `954e830`** (Phase 1): Production security hardening — enforced strong JWT secrets, strict CORS policy, cryptographic JTI tokens, sanitized production error responses, and AI API key log redaction.
 * **Commit `5fe2a94`** (Phase 2A): Deterministic database migrations — introduced `dbo._migrations` history table, SHA-256 checksum verification, and transactional execution.
@@ -398,4 +428,5 @@ npm run build
 * **Commit `9373503`**: SQL Server schema alignment and repository query compatibility fixes.
 * **Commit `402959b`** (Phase 3): HttpOnly refresh-token cookies — removed refresh tokens from browser `localStorage` and JSON responses, enforced `/api/auth` path scoping.
 * **Commit `7c3b338` / Phase 3B**: Robust Double-Submit CSRF protection — implemented non-HttpOnly `codeguard_csrf_token`, `X-CSRF-Token` header verification, constant-time token comparison, neutral cookie utility architecture, and strict Origin/Referer enforcement.
-* **Phase 4A (Current)**: Distributed Redis-backed Rate Limiting — implemented cluster-synchronized counters with namespace `codeguard:ratelimit:`, configurable window/limits, degraded in-memory failover, and credential masking.
+* **Phase 4A**: Distributed Redis-backed Rate Limiting — implemented cluster-synchronized counters with namespace `codeguard:ratelimit:`, configurable window/limits, degraded in-memory failover, and credential masking.
+* **Phase 4B (Current)**: SQL-Backed Account Lockout & Brute-Force Defense — implemented atomic SQL failure tracking (`FailedLoginCount`, `LockedUntil`), threshold lockout enforcement, bcrypt bypass for locked accounts, and dummy hash timing attack protection.

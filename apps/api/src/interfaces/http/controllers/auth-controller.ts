@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { AuthService } from "../../../application/services/auth-service.js";
+import { AuthService, DUMMY_BCRYPT_HASH } from "../../../application/services/auth-service.js";
 import type { User, UserRole } from "../../../domain/entities/user.js";
 import type { UserRepository } from "../../../domain/repositories/user-repository.js";
 import { authenticate } from "../middleware/auth.js";
@@ -146,21 +146,50 @@ export function authController(
       // Validate input
       const dto = loginSchema.parse(req.body);
 
-      // Find user by email and verify password
-      const user = await userRepository.findByCredentials(dto.email, dto.password);
-      if (!user) {
-        // Don't reveal whether user exists or password is invalid
+      const lockoutDurationMs = authService.parseTimeString(env.ACCOUNT_LOCKOUT_DURATION ?? "15m");
+      const maxAttempts = env.MAX_FAILED_LOGIN_ATTEMPTS ?? 5;
+
+      // 1. Look up account by email, including login security state and password hash
+      const authDetails = await userRepository.findAuthDetailsByEmail(dto.email);
+
+      // 2. If account does not exist -> dummy verify and return generic 401 INVALID_CREDENTIALS
+      if (!authDetails) {
+        await authService.verifyPassword(dto.password, DUMMY_BCRYPT_HASH);
         res.status(401).json({ error: "INVALID_CREDENTIALS" });
         return;
       }
 
-      // Check if user email is verified
+      const { user, passwordHash, lockedUntil } = authDetails;
+
+      // 3. If account exists and LockedUntil is in the future -> 403 ACCOUNT_LOCKED (do not run bcrypt)
+      const now = Date.now();
+      if (lockedUntil && lockedUntil.getTime() > now) {
+        res.status(403).json({ error: "ACCOUNT_LOCKED" });
+        return;
+      }
+
+      // 4. Verify the supplied password against the stored hash
+      const isPasswordValid = passwordHash
+        ? await authService.verifyPassword(dto.password, passwordHash)
+        : false;
+
+      // 5. If password is wrong -> atomically increment failed logins and return 401 INVALID_CREDENTIALS
+      if (!isPasswordValid) {
+        await userRepository.incrementFailedLogins(user.id, maxAttempts, lockoutDurationMs);
+        res.status(401).json({ error: "INVALID_CREDENTIALS" });
+        return;
+      }
+
+      // 6. If password is correct -> reset failed-login state
+      await userRepository.resetFailedLogins(user.id);
+
+      // 7. Enforce existing email-verification check
       if (!user.isEmailVerified) {
         res.status(403).json({ error: "EMAIL_NOT_VERIFIED" });
         return;
       }
 
-      // Issue tokens with session
+      // 8. Issue tokens with session
       const ipAddress = req.ip || (req.connection && req.connection.remoteAddress) || '';
       const userAgent = req.get('User-Agent') || '';
 

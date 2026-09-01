@@ -364,18 +364,34 @@ export class AuthService {
   }
 
   /**
-   * Parse time string like "15m", "7d", "24h" to milliseconds
+   * Parse time string like "15m", "7d", "24h", "30s" to milliseconds
    */
-  private parseTimeString(timeStr: string): number {
-    const num = parseInt(timeStr);
-    const unit = timeStr.slice(-1);
+  public parseTimeString(timeStr: string): number {
+    return parseTimeString(timeStr);
+  }
+}
 
-    switch (unit) {
-      case 's': return num * 1000;
-      case 'm': return num * 60 * 1000;
-      case 'h': return num * 60 * 60 * 1000;
-      case 'd': return num * 24 * 60 * 60 * 1000;
-      default: throw new Error(`Unsupported time unit: ${unit}`);
-    }
+export const DUMMY_BCRYPT_HASH = "$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4h/4q/YvKe";
+
+/**
+ * Parse time string like "15m", "7d", "24h", "30s" to milliseconds
+ */
+export function parseTimeString(timeStr: string): number {
+  if (typeof timeStr !== "string") {
+    throw new Error("Time string must be a string");
+  }
+  const match = timeStr.trim().match(/^(\d+)([smhd])$/i);
+  if (!match) {
+    throw new Error(`Unsupported or malformed time string: ${timeStr}`);
+  }
+  const num = parseInt(match[1], 10);
+  const unit = match[2].toLowerCase();
+
+  switch (unit) {
+    case "s": return num * 1000;
+    case "m": return num * 60 * 1000;
+    case "h": return num * 60 * 60 * 1000;
+    case "d": return num * 24 * 60 * 60 * 1000;
+    default: throw new Error(`Unsupported time unit: ${unit}`);
   }
 }
