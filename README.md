@@ -209,7 +209,33 @@ To protect browser clients against Cross-Site Request Forgery on cookie-dependen
 
 ---
 
-## 11. Environment Configuration
+## 11. Production Secret Management & Deployment
+
+* **Deployment Platform Targets**:
+  * **Backend API (`apps/api`)**: Deployed to [Railway](https://railway.app) (Node.js runtime container).
+  * **AI Service (`apps/ai-service`)**: Deployed to [Railway](https://railway.app) (Python FastAPI container).
+  * **Frontend Web App (`apps/web`)**: Deployed to [Vercel](https://vercel.com) (Next.js serverless / edge runtime).
+* **Secret Isolation Boundaries**:
+  * **GitHub Actions**: Stores deployment triggers only (`RAILWAY_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`). GitHub Actions does **not** store or manage application runtime secrets.
+  * **Railway Runtime Secrets**: Production API and AI Service secrets (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `SQLSERVER_PASSWORD`, `REDIS_URL`, `NVIDIA_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `SMTP_*`) are configured as **Railway Service Variables**.
+  * **Railway Sealed Variables**: High-sensitivity credentials (database passwords, JWT secrets, AI API keys) should be stored as Sealed Variables in Railway. Sealed variables are write-only and cannot be viewed in the UI or retrieved via API.
+  * *Important Railway Caveat*: Sealed variables are not copied automatically into PR/preview environments or duplicated branches. Dedicated staging/preview credentials must be explicitly configured per environment.
+  * **Vercel Frontend Environment Variables**: Only non-secret, browser-visible configuration (e.g. `NEXT_PUBLIC_BACKEND_API_URL`) is exposed via `NEXT_PUBLIC_*`. Backend credentials, API keys, database connection strings, and JWT secrets must **never** be prefixed with `NEXT_PUBLIC_*`.
+* **Zero-Secret Repository Policy**:
+  * Production `.env` and `.env.*` files are excluded in `.gitignore` and never committed.
+  * `.env.example` files are strictly non-sensitive templates.
+  * `docker-compose.prod.yml` consumes environment variables at runtime via `${VARIABLE}` substitution rather than hardcoded literals.
+* **Deterministic Deployment Pipeline Order**:
+  ```
+  GitHub push to main -> Deploy AI Service -> Deploy Backend API -> Deploy Frontend Web
+  ```
+* **Supply-Chain Hardened GitHub Actions**:
+  * Deployment workflow uses least-privilege `permissions: contents: read`.
+  * Third-party GitHub Actions are pinned to immutable commit SHAs (`actions/checkout@11bd719`, `bervProject/railway-deploy@8d82d4b`, `amondnet/vercel-action@de09aea`).
+
+---
+
+## 12. Environment Configuration
 
 ### Common / Local Development (`.env`)
 ```env
@@ -261,7 +287,7 @@ SMTP_SECURE=false
 EMAIL_FROM=noreply@codeguard.local
 ```
 
-### Production Requirements (`.env.production`)
+### Production Requirements (`.env.production` / Railway & Vercel Variables)
 ```env
 NODE_ENV=production
 JWT_ACCESS_SECRET=<high-entropy-64-char-random-secret>
@@ -280,7 +306,7 @@ CORS_ORIGIN=https://app.yourdomain.com
 
 ---
 
-## 12. API Endpoints
+## 13. API Endpoints
 
 ### Health & Readiness
 | Method | Path | Description |
@@ -312,7 +338,7 @@ CORS_ORIGIN=https://app.yourdomain.com
 
 ---
 
-## 13. Security Hardening Matrix
+## 14. Security Hardening Matrix
 
 * ✅ **Production JWT Secret Enforcement**: Startup rejects default or predictable secrets in production mode.
 * ✅ **Strict CORS Policy**: Disallows wildcard/arbitrary origins; validates explicit origins.
@@ -326,44 +352,48 @@ CORS_ORIGIN=https://app.yourdomain.com
 * ✅ **Double-Submit CSRF Protection**: Timing-safe token comparison and origin validation on state mutations.
 * ✅ **Distributed Redis Rate Limiting**: Shared cluster counters with namespace prefixing, safe degraded failover, and sanitized logs.
 * ✅ **SQL-Backed Account Lockout & Brute-Force Defense**: Atomic SQL-level failure tracking, threshold lockout, bcrypt bypass on locked accounts, and dummy hash timing attack protection.
+* ✅ **Platform-Native Production Secret Management**: Zero runtime secrets in git/CI; Railway Sealed Variables & Vercel Sensitive Variables used for production secret injection.
 
 ---
 
-## 14. Testing & Verification
+## 15. Testing & Verification
 
 ### Test Suites & Status
 
 ```bash
-# 1. Run all Backend API Vitest Suites (141 tests in 11 files)
+# 1. Run all Backend API Vitest Suites (155 tests in 12 files)
 npm run test:all -w apps/api
 
-# 2. Run Account Lockout & Brute-Force Defense Suite (16 tests)
+# 2. Run Production Secret Management & Deployment Hardening Suite (14 tests)
+npx vitest run tests/deployment-secrets.test.ts -w apps/api
+
+# 3. Run Account Lockout & Brute-Force Defense Suite (16 tests)
 npx vitest run tests/account-lockout.test.ts -w apps/api
 
-# 3. Run Distributed Redis Rate Limiter Suite (14 tests)
+# 4. Run Distributed Redis Rate Limiter Suite (14 tests)
 npx vitest run tests/rate-limit.test.ts -w apps/api
 
-# 4. Run Dedicated CSRF Protection Suite (23 tests)
+# 5. Run Dedicated CSRF Protection Suite (23 tests)
 npx vitest run tests/csrf.test.ts -w apps/api
 
-# 5. Run HttpOnly Cookie & Session Suite (9 tests)
+# 6. Run HttpOnly Cookie & Session Suite (9 tests)
 npx vitest run tests/auth.cookies.test.ts -w apps/api
 
-# 6. Run AI Service Pytest Suite (65 tests)
+# 7. Run AI Service Pytest Suite (65 tests)
 python -m pytest apps/ai-service/tests -q
 
-# 7. Full Monorepo Build Check (TypeScript + Next.js Turbopack)
+# 8. Full Monorepo Build Check (TypeScript + Next.js Turbopack)
 npm run build
 ```
 
 **Verified Test Results**:
-* **Backend API (`apps/api`)**: `141 passed`, `2 skipped` (143 total across 11 test files)
+* **Backend API (`apps/api`)**: `155 passed`, `2 skipped` (157 total across 12 test files)
 * **AI Service (`apps/ai-service`)**: `65 passed` (100%)
 * **TypeScript & Web Build**: Clean compilation without errors or warnings.
 
 ---
 
-## 15. Local Development Quick Start
+## 16. Local Development Quick Start
 
 ### Prerequisites
 * Node.js 20+ and npm 10+
@@ -406,21 +436,20 @@ npm run build
 
 ---
 
-## 16. Production Readiness Status
+## 17. Production Readiness Status
 
 > [!WARNING]
 > **Production Status: Hardened Staging / Pre-Production Baseline**
 >
-> While CodeGuard AI has undergone substantial security hardening across authentication, migrations, SQL TLS, CSRF protection, distributed rate limiting, and account lockout, the application is **not yet fully production-ready**.
+> While CodeGuard AI has undergone substantial security hardening across authentication, migrations, SQL TLS, CSRF protection, distributed rate limiting, account lockout, and deployment secret isolation, the application requires the following cloud infrastructure provisioning before general production traffic:
 
 ### Remaining Pre-Production Blockers:
-1. **Cloud Secret Manager Integration**: Automated secret injection via AWS Secrets Manager, Azure Key Vault, or GCP Secret Manager.
-2. **Managed Cloud Database Provisioning**: Transitioning from local host SQL Server Express to Azure SQL or Amazon RDS with CA certificates.
-3. **Ingress / Reverse Proxy**: Edge TLS termination with Web Application Firewall (WAF) rules.
+1. **Managed Cloud Database Provisioning**: Transitioning from local host SQL Server Express to Azure SQL or Amazon RDS with CA certificates.
+2. **Ingress / Reverse Proxy**: Edge TLS termination with Web Application Firewall (WAF) rules.
 
 ---
 
-## 17. Recent Security Hardening Changelog
+## 18. Recent Security Hardening Changelog
 
 * **Commit `954e830`** (Phase 1): Production security hardening — enforced strong JWT secrets, strict CORS policy, cryptographic JTI tokens, sanitized production error responses, and AI API key log redaction.
 * **Commit `5fe2a94`** (Phase 2A): Deterministic database migrations — introduced `dbo._migrations` history table, SHA-256 checksum verification, and transactional execution.
@@ -429,4 +458,5 @@ npm run build
 * **Commit `402959b`** (Phase 3): HttpOnly refresh-token cookies — removed refresh tokens from browser `localStorage` and JSON responses, enforced `/api/auth` path scoping.
 * **Commit `7c3b338` / Phase 3B**: Robust Double-Submit CSRF protection — implemented non-HttpOnly `codeguard_csrf_token`, `X-CSRF-Token` header verification, constant-time token comparison, neutral cookie utility architecture, and strict Origin/Referer enforcement.
 * **Phase 4A**: Distributed Redis-backed Rate Limiting — implemented cluster-synchronized counters with namespace `codeguard:ratelimit:`, configurable window/limits, degraded in-memory failover, and credential masking.
-* **Phase 4B (Current)**: SQL-Backed Account Lockout & Brute-Force Defense — implemented atomic SQL failure tracking (`FailedLoginCount`, `LockedUntil`), threshold lockout enforcement, bcrypt bypass for locked accounts, and dummy hash timing attack protection.
+* **Phase 4B**: SQL-Backed Account Lockout & Brute-Force Defense — implemented atomic SQL failure tracking (`FailedLoginCount`, `LockedUntil`), threshold lockout enforcement, bcrypt bypass for locked accounts, and dummy hash timing attack protection.
+* **Phase 5 (Current)**: Production Secret Management & Deployment Hardening — hardened GitHub Actions deployment workflows (least-privilege permissions, job-level env secret scoping, pinned action commit SHAs), established zero-secret repository boundaries, and documented platform-native secret management (Railway Sealed Variables & Vercel Sensitive Variables).
