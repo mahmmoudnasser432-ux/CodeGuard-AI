@@ -178,16 +178,22 @@ To protect browser clients against Cross-Site Request Forgery on cookie-dependen
 
 ---
 
-## 9. Database Architecture & Migrations
+## 9. Database Architecture & Managed Cloud Database (Azure SQL)
 
 * **Database Engine**: Microsoft SQL Server (T-SQL).
+* **Managed Cloud Database Target**: [Azure SQL Database](https://azure.microsoft.com/en-us/products/azure-sql/database) is the recommended managed production database platform, providing managed high availability, automated backups, and compliant TLS encryption.
 * **Deterministic Migration Engine** (`apps/api/src/migration-runner.ts`):
-  * Tracking Table: `dbo._migrations`
+  * Tracking Table: `dbo._migrations` (automatically created on clean managed databases).
   * Integrity: SHA-256 checksums stored per migration. Modifying an applied migration causes startup to abort with a fatal error.
   * Order: Strictly sequential execution based on filename prefix (e.g., `001_initial.sql`).
   * Transactions: Each migration batch runs inside a dedicated database transaction.
-* **Connection Hardening**:
+* **Connection & TLS Hardening**:
   * Production TLS Policy: In `NODE_ENV=production`, `SQLSERVER_ENCRYPT=true` is enforced and `SQLSERVER_TRUST_SERVER_CERTIFICATE` **must** be `false`. Setting it to `true` in production causes startup configuration validation to fail immediately.
+  * Certificate Subject Name / Logical Server FQDN: For Azure SQL Database, the application connects to the logical server FQDN (`<server>.database.windows.net`), which is validated against public Certificate Authorities even when traffic routes via Private Endpoints. The optional `SQLSERVER_SERVER_NAME` configuration is only needed when connecting through an intermediate proxy where the network connection hostname differs from the certificate DNS name.
+* **Secret & Network Security**:
+  * Database credentials (`SQLSERVER_USER`, `SQLSERVER_PASSWORD`) are injected via Railway Service/Sealed Variables and never committed.
+  * Network access should be restricted to authorized Railway API egress IPs or Azure Private Link / Private Endpoints.
+* **Scope Note**: Phase 6A establishes application code and driver compatibility for Azure SQL Database. Cloud database provisioning itself is executed during infrastructure setup.
 
 ---
 
@@ -353,6 +359,7 @@ CORS_ORIGIN=https://app.yourdomain.com
 * ✅ **Distributed Redis Rate Limiting**: Shared cluster counters with namespace prefixing, safe degraded failover, and sanitized logs.
 * ✅ **SQL-Backed Account Lockout & Brute-Force Defense**: Atomic SQL-level failure tracking, threshold lockout, bcrypt bypass on locked accounts, and dummy hash timing attack protection.
 * ✅ **Platform-Native Production Secret Management**: Zero runtime secrets in git/CI; Railway Sealed Variables & Vercel Sensitive Variables used for production secret injection.
+* ✅ **Managed Cloud Database (Azure SQL) Readiness**: Strict TLS certificate validation, optional SAN matching with `SQLSERVER_SERVER_NAME`, sanitized error diagnostics, and idempotent transactional migrations.
 
 ---
 
@@ -361,33 +368,36 @@ CORS_ORIGIN=https://app.yourdomain.com
 ### Test Suites & Status
 
 ```bash
-# 1. Run all Backend API Vitest Suites (155 tests in 12 files)
+# 1. Run all Backend API Vitest Suites (162 tests in 12 files)
 npm run test:all -w apps/api
 
-# 2. Run Production Secret Management & Deployment Hardening Suite (14 tests)
+# 2. Run Database TLS & Managed Cloud Readiness Suite (15 tests)
+npx vitest run tests/database.connection.test.ts -w apps/api
+
+# 3. Run Production Secret Management & Deployment Hardening Suite (14 tests)
 npx vitest run tests/deployment-secrets.test.ts -w apps/api
 
-# 3. Run Account Lockout & Brute-Force Defense Suite (16 tests)
+# 4. Run Account Lockout & Brute-Force Defense Suite (16 tests)
 npx vitest run tests/account-lockout.test.ts -w apps/api
 
-# 4. Run Distributed Redis Rate Limiter Suite (14 tests)
+# 5. Run Distributed Redis Rate Limiter Suite (14 tests)
 npx vitest run tests/rate-limit.test.ts -w apps/api
 
-# 5. Run Dedicated CSRF Protection Suite (23 tests)
+# 6. Run Dedicated CSRF Protection Suite (23 tests)
 npx vitest run tests/csrf.test.ts -w apps/api
 
-# 6. Run HttpOnly Cookie & Session Suite (9 tests)
+# 7. Run HttpOnly Cookie & Session Suite (9 tests)
 npx vitest run tests/auth.cookies.test.ts -w apps/api
 
-# 7. Run AI Service Pytest Suite (65 tests)
+# 8. Run AI Service Pytest Suite (65 tests)
 python -m pytest apps/ai-service/tests -q
 
-# 8. Full Monorepo Build Check (TypeScript + Next.js Turbopack)
+# 9. Full Monorepo Build Check (TypeScript + Next.js Turbopack)
 npm run build
 ```
 
 **Verified Test Results**:
-* **Backend API (`apps/api`)**: `155 passed`, `2 skipped` (157 total across 12 test files)
+* **Backend API (`apps/api`)**: `162 passed`, `2 skipped` (164 total across 12 test files)
 * **AI Service (`apps/ai-service`)**: `65 passed` (100%)
 * **TypeScript & Web Build**: Clean compilation without errors or warnings.
 
@@ -441,10 +451,10 @@ npm run build
 > [!WARNING]
 > **Production Status: Hardened Staging / Pre-Production Baseline**
 >
-> While CodeGuard AI has undergone substantial security hardening across authentication, migrations, SQL TLS, CSRF protection, distributed rate limiting, account lockout, and deployment secret isolation, the application requires the following cloud infrastructure provisioning before general production traffic:
+> While CodeGuard AI has undergone substantial security hardening across authentication, migrations, SQL TLS, CSRF protection, distributed rate limiting, account lockout, deployment secret isolation, and database cloud readiness, the application requires the following cloud infrastructure provisioning before general production traffic:
 
 ### Remaining Pre-Production Blockers:
-1. **Managed Cloud Database Provisioning**: Transitioning from local host SQL Server Express to Azure SQL or Amazon RDS with CA certificates.
+1. **Managed Cloud Database Provisioning**: Provisioning the production Azure SQL Database resource, configuring firewall rules/Private Link, and executing initial migrations.
 2. **Ingress / Reverse Proxy**: Edge TLS termination with Web Application Firewall (WAF) rules.
 
 ---
@@ -459,4 +469,5 @@ npm run build
 * **Commit `7c3b338` / Phase 3B**: Robust Double-Submit CSRF protection — implemented non-HttpOnly `codeguard_csrf_token`, `X-CSRF-Token` header verification, constant-time token comparison, neutral cookie utility architecture, and strict Origin/Referer enforcement.
 * **Phase 4A**: Distributed Redis-backed Rate Limiting — implemented cluster-synchronized counters with namespace `codeguard:ratelimit:`, configurable window/limits, degraded in-memory failover, and credential masking.
 * **Phase 4B**: SQL-Backed Account Lockout & Brute-Force Defense — implemented atomic SQL failure tracking (`FailedLoginCount`, `LockedUntil`), threshold lockout enforcement, bcrypt bypass for locked accounts, and dummy hash timing attack protection.
-* **Phase 5 (Current)**: Production Secret Management & Deployment Hardening — hardened GitHub Actions deployment workflows (least-privilege permissions, job-level env secret scoping, pinned action commit SHAs), established zero-secret repository boundaries, and documented platform-native secret management (Railway Sealed Variables & Vercel Sensitive Variables).
+* **Phase 5**: Production Secret Management & Deployment Hardening — hardened GitHub Actions deployment workflows (least-privilege permissions, job-level env secret scoping, pinned action commit SHAs), established zero-secret repository boundaries, and documented platform-native secret management (Railway Sealed Variables & Vercel Sensitive Variables).
+* **Phase 6A (Current)**: Managed Cloud Database Readiness — hardened SQL driver configuration for Azure SQL Database compatibility, added configurable certificate SAN matching (`SQLSERVER_SERVER_NAME`), implemented credential-safe SQL error classification & diagnostics, and validated migration determinism.

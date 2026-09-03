@@ -41,6 +41,10 @@ export const envSchema = z
       (val) => (typeof val === "string" ? val.toLowerCase() === "true" || val === "1" : Boolean(val)),
       z.boolean()
     ).optional(),
+    SQLSERVER_SERVER_NAME: z.preprocess(
+      (val) => (typeof val === "string" && val.trim() === "" ? undefined : val),
+      z.string().optional()
+    ),
     SQLSERVER_CONNECTION_TIMEOUT: z.coerce.number().int().positive().default(15000),
     SQLSERVER_REQUEST_TIMEOUT: z.coerce.number().int().positive().default(30000),
     SQLSERVER_POOL_MIN: z.coerce.number().int().nonnegative().optional(),
