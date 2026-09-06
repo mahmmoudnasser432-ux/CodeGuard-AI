@@ -20,7 +20,20 @@ import { env } from "./config/env.js";
 
 const startTime = Date.now();
 
-export function createApp() {
+export interface CreateAppOptions {
+  dbDialect?: "sqlserver" | "postgres";
+}
+
+export function createApp(options?: CreateAppOptions) {
+  const activeDialect = options?.dbDialect ?? env.DB_DIALECT;
+  if (activeDialect === "postgres") {
+    throw new Error(
+      "DB_DIALECT=postgres runtime application mode is scheduled for Phase 6C-2 (PostgreSQL Repositories). " +
+      "Currently, PostgreSQL configuration and migrations are verified, but domain repository adapters have not yet been implemented. " +
+      "Application startup with DB_DIALECT=postgres is blocked to prevent accidental fallback or connection attempts to SQL Server."
+    );
+  }
+
   const app = express();
   const pinoHttpExport = pinoHttpModule as unknown as { default?: () => RequestHandler } & (() => RequestHandler);
   const pinoHttp = pinoHttpExport.default ?? pinoHttpExport;

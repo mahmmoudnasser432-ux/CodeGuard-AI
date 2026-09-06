@@ -391,7 +391,7 @@ export const dbConfigSchema = z.object({
 ```mermaid
 flowchart LR
     P6C["Phase 6C-Free\n(Assessment & Design)\n[COMPLETED]"]
-    P6C1["Phase 6C-1\nPostgreSQL DDL &\nMigration Engine"]
+    P6C1["Phase 6C-1\nPostgreSQL DDL &\nMigration Engine\n[COMPLETED - PARALLEL FOUNDATION]"]
     P6C2["Phase 6C-2\nPostgreSQL Repositories\n(Domain Adapters)"]
     P6C3["Phase 6C-3\nKoyeb, Neon & Upstash\nStaging Deploys"]
     P6C4["Phase 6C-4\nE2E Smoke Verification\n& Demo Cutover"]
@@ -399,10 +399,16 @@ flowchart LR
     P6C --> P6C1 --> P6C2 --> P6C3 --> P6C4
 ```
 
-1. **Phase 6C-1: PostgreSQL Schema & Dedicated Migration Engine**
-   * Author PostgreSQL DDL schema (`database/postgres/schema.sql`) replacing T-SQL constructs with `UUID`, `TIMESTAMPTZ`, `BOOLEAN`, and partial indexes.
-   * Implement `postgres-migration-runner.ts` using `pg` without SQL Server `GO` splitters.
-   * Add automated test verifying schema idempotency against PostgreSQL.
+1. **Phase 6C-1: PostgreSQL Schema & Dedicated Migration Engine [COMPLETED]**
+   * PostgreSQL persistence foundation implemented as a parallel, non-intrusive path.
+   * `DB_DIALECT=sqlserver` remains the default, preserving 100% of existing SQL Server and Azure SQL production behaviors.
+   * Added `pg` driver and `@types/pg` dependencies without removing `mssql`.
+   * Created parallel database module `apps/api/src/infrastructure/database/postgres.ts` with pool configuration and error classification.
+   * Created dedicated PostgreSQL migration runner `postgres-migration-runner.ts` featuring transactional execution, SHA-256 checksums, and session-level advisory locks (`pg_advisory_lock`).
+   * Created PostgreSQL migrations under `database/postgres/migrations/`:
+     - `001_initial_schema.sql` (18 tables with UUIDs, TIMESTAMPTZ, BOOLEAN, partial indexes, and pgcrypto)
+     - `002_seed_roles_and_dev_user.sql` (safe idempotent seed with zero embedded plaintext credentials).
+   * Verified zero SQL Server syntax constructs (`GO`, `dbo.`, `OBJECT_ID`, `sys.indexes`, `MERGE`, `OUTPUT INSERTED`) via static audit tests.
 
 2. **Phase 6C-2: Repository Implementation Layer (PostgreSQL Adapters)**
    * Create `src/infrastructure/repositories/postgres/` implementing domain repository interfaces.

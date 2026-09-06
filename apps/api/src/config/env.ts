@@ -28,6 +28,20 @@ export const envSchema = z
     EMAIL_VERIFICATION_EXPIRES_IN: z.string().default("24h"),
     MAX_FAILED_LOGIN_ATTEMPTS: z.coerce.number().int().min(1).default(5),
     ACCOUNT_LOCKOUT_DURATION: z.string().default("15m"),
+    DB_DIALECT: z.enum(["sqlserver", "postgres"]).default("sqlserver"),
+    POSTGRES_HOST: z.string().optional(),
+    POSTGRES_PORT: z.coerce.number().int().positive().default(5432),
+    POSTGRES_DATABASE: z.string().optional(),
+    POSTGRES_USER: z.string().optional(),
+    POSTGRES_PASSWORD: z.string().optional(),
+    POSTGRES_SSL: z.preprocess(
+      (val) => (typeof val === "string" ? val.toLowerCase() === "true" || val === "1" || val === "require" : val === undefined ? true : Boolean(val)),
+      z.boolean()
+    ).default(true),
+    POSTGRES_CONNECTION_TIMEOUT: z.coerce.number().int().positive().default(15000),
+    POSTGRES_POOL_MAX: z.coerce.number().int().positive().default(10),
+    POSTGRES_POOL_MIN: z.coerce.number().int().nonnegative().default(0),
+    POSTGRES_IDLE_TIMEOUT: z.coerce.number().int().positive().default(30000),
     SQLSERVER_HOST: z.string().default("localhost"),
     SQLSERVER_PORT: z.coerce.number().default(54833),
     SQLSERVER_DATABASE: z.string().default("CodeGuardAI"),
@@ -137,31 +151,80 @@ export const envSchema = z
         });
       }
 
-      // 4. SQLSERVER_PASSWORD validation in production
-      if (!data.SQLSERVER_PASSWORD || data.SQLSERVER_PASSWORD.trim() === "") {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["SQLSERVER_PASSWORD"],
-          message: "SQLSERVER_PASSWORD is required in production.",
-        });
-      }
+      // 4. Database configuration validation based on DB_DIALECT
+      if (data.DB_DIALECT === "sqlserver") {
+        if (!data.SQLSERVER_PASSWORD || data.SQLSERVER_PASSWORD.trim() === "") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["SQLSERVER_PASSWORD"],
+            message: "SQLSERVER_PASSWORD is required in production.",
+          });
+        }
 
-      // 5. SQLSERVER_ENCRYPT validation in production
-      if (data.SQLSERVER_ENCRYPT !== true) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["SQLSERVER_ENCRYPT"],
-          message: "SQLSERVER_ENCRYPT must be true in production to ensure encrypted database transit.",
-        });
-      }
+        if (data.SQLSERVER_ENCRYPT !== true) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["SQLSERVER_ENCRYPT"],
+            message: "SQLSERVER_ENCRYPT must be true in production to ensure encrypted database transit.",
+          });
+        }
 
-      // 6. SQLSERVER_TRUST_SERVER_CERTIFICATE validation in production
-      if (data.SQLSERVER_TRUST_SERVER_CERTIFICATE === true) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["SQLSERVER_TRUST_SERVER_CERTIFICATE"],
-          message: "SQLSERVER_TRUST_SERVER_CERTIFICATE must be false in production. Disabling TLS certificate validation in production is not permitted.",
-        });
+        if (data.SQLSERVER_TRUST_SERVER_CERTIFICATE === true) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["SQLSERVER_TRUST_SERVER_CERTIFICATE"],
+            message: "SQLSERVER_TRUST_SERVER_CERTIFICATE must be false in production. Disabling TLS certificate validation in production is not permitted.",
+          });
+        }
+      } else if (data.DB_DIALECT === "postgres") {
+        if (!data.POSTGRES_HOST || data.POSTGRES_HOST.trim() === "") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["POSTGRES_HOST"],
+            message: "POSTGRES_HOST is required in production when DB_DIALECT=postgres.",
+          });
+        } else {
+          const lowerHost = data.POSTGRES_HOST.toLowerCase().trim();
+          if (lowerHost === "localhost" || lowerHost === "127.0.0.1" || lowerHost === "::1") {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["POSTGRES_HOST"],
+              message: "POSTGRES_HOST must not point to localhost in production.",
+            });
+          }
+        }
+
+        if (!data.POSTGRES_DATABASE || data.POSTGRES_DATABASE.trim() === "") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["POSTGRES_DATABASE"],
+            message: "POSTGRES_DATABASE is required in production when DB_DIALECT=postgres.",
+          });
+        }
+
+        if (!data.POSTGRES_USER || data.POSTGRES_USER.trim() === "") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["POSTGRES_USER"],
+            message: "POSTGRES_USER is required in production when DB_DIALECT=postgres.",
+          });
+        }
+
+        if (!data.POSTGRES_PASSWORD || data.POSTGRES_PASSWORD.trim() === "") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["POSTGRES_PASSWORD"],
+            message: "POSTGRES_PASSWORD is required in production when DB_DIALECT=postgres.",
+          });
+        }
+
+        if (data.POSTGRES_SSL !== true) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["POSTGRES_SSL"],
+            message: "POSTGRES_SSL must be true in production to ensure encrypted database transit.",
+          });
+        }
       }
 
       // 7. REDIS_URL is required for distributed rate limiting in production
