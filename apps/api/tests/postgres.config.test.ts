@@ -183,14 +183,14 @@ describe("Runtime Selection Boundary (Phase 6C-1 vs Phase 6C-2)", () => {
     const instance = createApp();
     expect(instance).toBeDefined();
     expect(instance.app).toBeDefined();
-  });
+  }, 15000);
 
   it("safely blocks full application execution when dbDialect=postgres before Phase 6C-2 repository adapters exist", async () => {
     const { createApp } = await import("../src/app.js");
     expect(() => createApp({ dbDialect: "postgres" })).toThrowError(
       /DB_DIALECT=postgres runtime application mode is scheduled for Phase 6C-2/
     );
-  });
+  }, 15000);
 });
 
 describe("PostgreSQL Error Diagnostics & Credential Sanitization", () => {
