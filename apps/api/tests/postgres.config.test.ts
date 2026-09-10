@@ -5,38 +5,39 @@ import {
   classifyPostgresError,
 } from "../src/infrastructure/database/postgres.js";
 
-describe("PostgreSQL Configuration Validation & Dialect Isolation", () => {
-  const baseValidProdSqlServerEnv = {
-    NODE_ENV: "production",
-    API_URL: "https://api.codeguardai.com",
-    AI_SERVICE_URL: "http://ai-service:8000",
-    FRONTEND_URL: "https://app.codeguardai.com",
-    JWT_ACCESS_SECRET: "0123456789abcdef0123456789abcdef",
-    JWT_REFRESH_SECRET: "fedcba9876543210fedcba9876543210",
-    SQLSERVER_HOST: "sql.internal.codeguardai.com",
-    SQLSERVER_PORT: "1433",
-    SQLSERVER_DATABASE: "CodeGuardAI",
-    SQLSERVER_USER: "codeguard_app",
-    SQLSERVER_PASSWORD: "StrongProductionDBPassword#123",
-    REDIS_URL: "rediss://redis.internal.codeguard.ai:6379",
-  };
+const baseValidProdSqlServerEnv = {
+  NODE_ENV: "production",
+  API_URL: "https://api.codeguardai.com",
+  AI_SERVICE_URL: "http://ai-service:8000",
+  FRONTEND_URL: "https://app.codeguardai.com",
+  JWT_ACCESS_SECRET: "0123456789abcdef0123456789abcdef",
+  JWT_REFRESH_SECRET: "fedcba9876543210fedcba9876543210",
+  SQLSERVER_HOST: "sql.internal.codeguardai.com",
+  SQLSERVER_PORT: "1433",
+  SQLSERVER_DATABASE: "CodeGuardAI",
+  SQLSERVER_USER: "codeguard_app",
+  SQLSERVER_PASSWORD: "StrongProductionDBPassword#123",
+  REDIS_URL: "rediss://redis.internal.codeguard.ai:6379",
+};
 
-  const baseValidProdPostgresEnv = {
-    NODE_ENV: "production",
-    DB_DIALECT: "postgres",
-    API_URL: "https://api.codeguardai.com",
-    AI_SERVICE_URL: "http://ai-service:8000",
-    FRONTEND_URL: "https://app.codeguardai.com",
-    JWT_ACCESS_SECRET: "0123456789abcdef0123456789abcdef",
-    JWT_REFRESH_SECRET: "fedcba9876543210fedcba9876543210",
-    POSTGRES_HOST: "ep-demo-12345.us-east-2.aws.neon.tech",
-    POSTGRES_PORT: "5432",
-    POSTGRES_DATABASE: "neondb",
-    POSTGRES_USER: "codeguard_pg_user",
-    POSTGRES_PASSWORD: "StrongPostgresPassword#123",
-    POSTGRES_SSL: "true",
-    REDIS_URL: "rediss://redis.internal.codeguard.ai:6379",
-  };
+const baseValidProdPostgresEnv = {
+  NODE_ENV: "production",
+  DB_DIALECT: "postgres",
+  API_URL: "https://api.codeguardai.com",
+  AI_SERVICE_URL: "http://ai-service:8000",
+  FRONTEND_URL: "https://app.codeguardai.com",
+  JWT_ACCESS_SECRET: "0123456789abcdef0123456789abcdef",
+  JWT_REFRESH_SECRET: "fedcba9876543210fedcba9876543210",
+  POSTGRES_HOST: "ep-demo-12345.us-east-2.aws.neon.tech",
+  POSTGRES_PORT: "5432",
+  POSTGRES_DATABASE: "neondb",
+  POSTGRES_USER: "codeguard_pg_user",
+  POSTGRES_PASSWORD: "StrongPostgresPassword#123",
+  POSTGRES_SSL: "true",
+  REDIS_URL: "rediss://redis.internal.codeguard.ai:6379",
+};
+
+describe("PostgreSQL Configuration Validation & Dialect Isolation", () => {
 
   it("defaults to DB_DIALECT=sqlserver and preserves SQL Server validation without requiring PostgreSQL vars", () => {
     const parsed = parseEnv(baseValidProdSqlServerEnv);
@@ -277,5 +278,81 @@ describe("PostgreSQL Error Diagnostics & Credential Sanitization", () => {
     expect(diagnostic.sanitizedMessage).not.toContain("jwt-token-val-456");
     expect(diagnostic.sanitizedMessage).not.toContain("secret_api_key_789");
     expect(diagnostic.sanitizedMessage).toContain("[REDACTED]");
+  });
+
+  describe("FRONTEND_URL Production Enforcement", () => {
+    it("does not create a localhost default origin in production when FRONTEND_URL is omitted", () => {
+      const { FRONTEND_URL, ...withoutFrontend } = baseValidProdPostgresEnv;
+      const parsed = parseEnv(withoutFrontend);
+      expect(parsed.FRONTEND_URL).toBeUndefined();
+    });
+
+    it("explicitly rejects production startup when FRONTEND_URL is localhost or loopback", () => {
+      expect(() =>
+        parseEnv({
+          ...baseValidProdPostgresEnv,
+          FRONTEND_URL: "http://localhost:3000",
+        })
+      ).toThrowError(/FRONTEND_URL must not point to localhost in production/);
+
+      expect(() =>
+        parseEnv({
+          ...baseValidProdPostgresEnv,
+          FRONTEND_URL: "http://127.0.0.1:3000",
+        })
+      ).toThrowError(/FRONTEND_URL must not point to localhost in production/);
+    });
+
+    it("accepts valid production domain for FRONTEND_URL", () => {
+      const parsed = parseEnv(baseValidProdPostgresEnv);
+      expect(parsed.FRONTEND_URL).toBe("https://app.codeguardai.com");
+    });
+
+    it("defaults to localhost:3000 in non-production when omitted", () => {
+      const parsed = parseEnv({
+        NODE_ENV: "development",
+      });
+      expect(parsed.FRONTEND_URL).toBe("http://localhost:3000");
+    });
+  });
+
+  describe("POSTGRES_MIGRATION_MODE Configuration (Phase 7.1)", () => {
+    it("defaults to 'validate' in production environment", () => {
+      const parsed = parseEnv(baseValidProdPostgresEnv);
+      expect(parsed.POSTGRES_MIGRATION_MODE).toBe("validate");
+    });
+
+    it("defaults to 'auto' in development environment", () => {
+      const parsed = parseEnv({
+        NODE_ENV: "development",
+      });
+      expect(parsed.POSTGRES_MIGRATION_MODE).toBe("auto");
+    });
+
+    it("defaults to 'auto' in test environment", () => {
+      const parsed = parseEnv({
+        NODE_ENV: "test",
+      });
+      expect(parsed.POSTGRES_MIGRATION_MODE).toBe("auto");
+    });
+
+    it("accepts explicit migration modes ('auto', 'migrate', 'validate', 'none')", () => {
+      for (const mode of ["auto", "migrate", "validate", "none"] as const) {
+        const parsed = parseEnv({
+          ...baseValidProdPostgresEnv,
+          POSTGRES_MIGRATION_MODE: mode,
+        });
+        expect(parsed.POSTGRES_MIGRATION_MODE).toBe(mode);
+      }
+    });
+
+    it("rejects invalid migration mode values", () => {
+      expect(() =>
+        parseEnv({
+          ...baseValidProdPostgresEnv,
+          POSTGRES_MIGRATION_MODE: "invalid_mode" as any,
+        })
+      ).toThrowError();
+    });
   });
 });

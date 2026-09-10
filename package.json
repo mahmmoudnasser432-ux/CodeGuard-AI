@@ -22,6 +22,9 @@
     "dev:ai": "cd apps/ai-service && python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
     "dev:all": "concurrently \"npm run dev:web\" \"npm run dev:api\" \"npm run dev:ai\"",
     "migrate": "tsx apps/api/src/migration-runner.ts",
+    "migrate:prod": "npm run migrate:prod -w apps/api",
+    "migrate:postgres": "npm run migrate:postgres -w apps/api",
+    "migrate:postgres:prod": "npm run migrate:postgres:prod -w apps/api",
     "seed": "tsx apps/api/src/seed-runner.ts"
   },
   "engines": {

@@ -41,6 +41,10 @@ export class PostgresProjectRepository implements ProjectRepository {
   }
 
   async findById(id: string): Promise<Project | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      return null;
+    }
+
     const result = await this.pool.query(
       `
       SELECT "Id", "OwnerUserId", "Name", "Description", "CreatedAt", "UpdatedAt"

@@ -31,7 +31,12 @@ export function isAllowedOrigin(origin: string | undefined, currentEnv = env): b
     }
   }
 
-  // Explicitly configured frontend URL (e.g. https://codeguard.ai, or http://localhost:3000 in local Docker)
+  // In production, reject localhost/loopback origins regardless of default settings
+  if (isProd && /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(origin)) {
+    return false;
+  }
+
+  // Explicitly configured frontend URL (e.g. https://codeguard.ai)
   if (currentEnv.FRONTEND_URL && origin === currentEnv.FRONTEND_URL) {
     return true;
   }

@@ -108,6 +108,10 @@ export class PostgresInterviewRepository implements InterviewRepository {
   }
 
   async findSessionById(id: string): Promise<InterviewSession | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      return null;
+    }
+
     const queryResult = await this.pool.query(
       `
       SELECT "Id", "Title", "CandidateUserId", "RecruiterUserId", "RepositoryId", "Status", "CreatedAt"

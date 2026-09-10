@@ -18,6 +18,15 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
     console.error(`[Internal Server Error] Request ID: ${requestId ?? "none"}`, error);
   }
 
+  if ((error as any).type === "entity.too.large" || (error as any).status === 413 || (error as any).statusCode === 413) {
+    res.status(413).json({
+      error: "PAYLOAD_TOO_LARGE",
+      message: "Request payload exceeded size limit.",
+      ...(requestId && { requestId: String(requestId) })
+    });
+    return;
+  }
+
   const isProd = (process.env.NODE_ENV || env.NODE_ENV) === "production";
 
   res.status(500).json({

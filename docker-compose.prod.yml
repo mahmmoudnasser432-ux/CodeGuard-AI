@@ -40,11 +40,20 @@ services:
       - API_URL=${API_URL}
       - API_BASE_URL=${API_BASE_URL:-${API_URL}}
       - AI_SERVICE_URL=http://ai-service:8000
-      - SQLSERVER_HOST=${SQLSERVER_HOST}
+      - DB_DIALECT=${DB_DIALECT:-sqlserver}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - POSTGRES_HOST=${POSTGRES_HOST:-}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DATABASE=${POSTGRES_DATABASE:-}
+      - POSTGRES_USER=${POSTGRES_USER:-}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
+      - POSTGRES_SSL=${POSTGRES_SSL:-true}
+      - POSTGRES_MIGRATION_MODE=${POSTGRES_MIGRATION_MODE:-validate}
+      - SQLSERVER_HOST=${SQLSERVER_HOST:-}
       - SQLSERVER_PORT=${SQLSERVER_PORT:-1433}
       - SQLSERVER_DATABASE=${SQLSERVER_DATABASE:-CodeGuardAI}
-      - SQLSERVER_USER=${SQLSERVER_USER}
-      - SQLSERVER_PASSWORD=${SQLSERVER_PASSWORD}
+      - SQLSERVER_USER=${SQLSERVER_USER:-}
+      - SQLSERVER_PASSWORD=${SQLSERVER_PASSWORD:-}
       - SQLSERVER_ENCRYPT=true
       - SQLSERVER_TRUST_SERVER_CERTIFICATE=false
       - SQLSERVER_CONNECTION_TIMEOUT=${SQLSERVER_CONNECTION_TIMEOUT:-15000}
@@ -93,6 +102,26 @@ services:
     depends_on:
       api:
         condition: service_healthy
+
+  postgres-migration:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: codeguard-postgres-migration
+    restart: "no"
+    profiles:
+      - migration
+    command: ["npm", "run", "migrate:postgres:prod", "-w", "apps/api"]
+    environment:
+      - NODE_ENV=production
+      - DB_DIALECT=postgres
+      - DATABASE_URL=${POSTGRES_MIGRATOR_URL:-${MIGRATION_DATABASE_URL:-${DATABASE_URL:-}}}
+      - POSTGRES_HOST=${POSTGRES_HOST:-}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DATABASE=${POSTGRES_DATABASE:-}
+      - POSTGRES_USER=${POSTGRES_MIGRATION_USER:-codeguard_migrator}
+      - POSTGRES_PASSWORD=${POSTGRES_MIGRATION_PASSWORD:-}
+      - POSTGRES_SSL=${POSTGRES_SSL:-true}
 
 networks:
   default:

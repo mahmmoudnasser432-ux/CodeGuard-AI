@@ -17,7 +17,10 @@ export const envSchema = z
     AI_SERVICE_URL: z.string().url().default("http://127.0.0.1:8000"),
     DATABASE_URL: z.string().optional(),
     DIRECT_URL: z.string().optional(),
-    FRONTEND_URL: z.string().url().default("http://localhost:3000"),
+    FRONTEND_URL: z.preprocess(
+      (val) => (typeof val === "string" && val.trim() === "" ? undefined : val),
+      z.string().url().optional()
+    ),
     CORS_ORIGIN: z.string().optional(),
     JWT_SECRET: z.string().min(24).optional(),
     JWT_ACCESS_SECRET: z.string().min(24).optional(),
@@ -42,6 +45,10 @@ export const envSchema = z
     POSTGRES_POOL_MAX: z.coerce.number().int().positive().default(10),
     POSTGRES_POOL_MIN: z.coerce.number().int().nonnegative().default(0),
     POSTGRES_IDLE_TIMEOUT: z.coerce.number().int().positive().default(30000),
+    POSTGRES_MIGRATION_MODE: z.enum(["auto", "migrate", "validate", "none"]).optional(),
+    POSTGRES_MIGRATOR_URL: z.string().optional(),
+    POSTGRES_MIGRATION_USER: z.string().optional(),
+    POSTGRES_MIGRATION_PASSWORD: z.string().optional(),
     SQLSERVER_HOST: z.string().default("localhost"),
     SQLSERVER_PORT: z.coerce.number().default(54833),
     SQLSERVER_DATABASE: z.string().default("CodeGuardAI"),
@@ -104,6 +111,27 @@ export const envSchema = z
     const effectiveAccessSecret = data.JWT_SECRET || data.JWT_ACCESS_SECRET;
 
     if (isProd) {
+      // 0. FRONTEND_URL validation in production: must not point to localhost or loopback
+      if (data.FRONTEND_URL) {
+        try {
+          const parsedUrl = new URL(data.FRONTEND_URL);
+          const host = parsedUrl.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+          if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["FRONTEND_URL"],
+              message: "FRONTEND_URL must not point to localhost in production.",
+            });
+          }
+        } catch {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["FRONTEND_URL"],
+            message: "FRONTEND_URL must be a valid URL in production.",
+          });
+        }
+      }
+
       // 1. API_BASE_URL validation in production
       if (!effectiveApiBaseUrl) {
         ctx.addIssue({
@@ -295,10 +323,11 @@ export function isLoopbackRedisUrl(value: string): boolean {
 export function parseEnv(rawEnv: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env) {
   const parsed = envSchema.parse(rawEnv);
 
+  const isProd = parsed.NODE_ENV === "production";
+  const effectiveFrontendUrl = parsed.FRONTEND_URL || (isProd ? undefined : "http://localhost:3000");
   const effectiveApiBaseUrl = parsed.API_URL || parsed.API_BASE_URL || "http://localhost:5000";
   const effectiveAccessSecret = parsed.JWT_SECRET || parsed.JWT_ACCESS_SECRET || DEV_DEFAULT_ACCESS_SECRET;
   const effectiveRefreshSecret = parsed.JWT_REFRESH_SECRET || DEV_DEFAULT_REFRESH_SECRET;
-  const isProd = parsed.NODE_ENV === "production";
 
   const effectiveTrustServerCert =
     parsed.SQLSERVER_TRUST_SERVER_CERTIFICATE !== undefined
@@ -315,14 +344,19 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv | Record<string, string | und
       ? parsed.AUTH_COOKIE_SECURE
       : isProd;
 
+  const effectiveMigrationMode =
+    parsed.POSTGRES_MIGRATION_MODE || (isProd ? "validate" : "auto");
+
   return {
     ...parsed,
+    FRONTEND_URL: effectiveFrontendUrl,
     API_BASE_URL: effectiveApiBaseUrl,
     JWT_ACCESS_SECRET: effectiveAccessSecret,
     JWT_REFRESH_SECRET: effectiveRefreshSecret,
     SQLSERVER_TRUST_SERVER_CERTIFICATE: effectiveTrustServerCert,
     SQLSERVER_POOL_MIN: effectivePoolMin,
     AUTH_COOKIE_SECURE: effectiveCookieSecure,
+    POSTGRES_MIGRATION_MODE: effectiveMigrationMode,
   };
 }
 

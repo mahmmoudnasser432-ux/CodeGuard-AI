@@ -3,7 +3,7 @@ import { env } from "./config/env.js";
 import { createApp } from "./app.js";
 import { startRedisClient, stopRedisClient } from "./infrastructure/redis/client.js";
 import { createPostgresPool } from "./infrastructure/database/postgres.js";
-import { runPostgresMigrations } from "./infrastructure/database/postgres-migration-runner.js";
+import { runPostgresMigrations, verifyPostgresSchema } from "./infrastructure/database/postgres-migration-runner.js";
 
 async function bootstrap() {
   await startRedisClient();
@@ -20,10 +20,19 @@ async function bootstrap() {
     }
     console.log("[Bootstrap] PostgreSQL shared pool connected successfully.");
 
-    // 3. Run pending migrations idempotently with advisory locking
-    console.log("[Bootstrap] Running pending PostgreSQL migrations...");
-    await runPostgresMigrations(undefined, postgresPool);
-    console.log("[Bootstrap] PostgreSQL migrations verified.");
+    // 3. Handle PostgreSQL schema migrations based on configured mode
+    const mode = env.POSTGRES_MIGRATION_MODE;
+    if (mode === "auto" || mode === "migrate") {
+      console.log(`[Bootstrap] Running PostgreSQL migrations (mode: ${mode})...`);
+      await runPostgresMigrations(undefined, postgresPool);
+      console.log("[Bootstrap] PostgreSQL migrations verified.");
+    } else if (mode === "validate") {
+      console.log("[Bootstrap] Validating PostgreSQL schema with read-only checks (mode: validate)...");
+      await verifyPostgresSchema(postgresPool);
+      console.log("[Bootstrap] PostgreSQL schema validation passed.");
+    } else {
+      console.log(`[Bootstrap] PostgreSQL migration check skipped (mode: ${mode}).`);
+    }
   }
 
   const { app, close } = createApp({

@@ -2,7 +2,7 @@ import pg from "pg";
 import * as fs from "fs";
 import * as path from "path";
 import { createHash } from "crypto";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { createPostgresPool } from "./postgres.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -151,6 +151,124 @@ export async function executePostgresMigration(
 }
 
 /**
+ * Creates a PostgreSQL pool tailored for executing migrations.
+ * Prefers explicit migrator credentials (POSTGRES_MIGRATOR_URL / MIGRATION_DATABASE_URL
+ * or POSTGRES_MIGRATION_USER / POSTGRES_MIGRATION_PASSWORD), falling back to createPostgresPool().
+ */
+export function createMigratorPostgresPool(): pg.Pool {
+  const migratorUrl = process.env.POSTGRES_MIGRATOR_URL || process.env.MIGRATION_DATABASE_URL;
+  const isProd = process.env.NODE_ENV === "production";
+  const sslVal = process.env.POSTGRES_SSL;
+  const ssl = sslVal === "false" || sslVal === "0" ? false : { rejectUnauthorized: isProd };
+
+  if (migratorUrl && migratorUrl.trim() !== "") {
+    return new pg.Pool({
+      connectionString: migratorUrl,
+      ssl,
+    });
+  }
+
+  if (process.env.POSTGRES_MIGRATION_USER && process.env.POSTGRES_MIGRATION_PASSWORD) {
+    return new pg.Pool({
+      host: process.env.POSTGRES_HOST || "localhost",
+      port: Number(process.env.POSTGRES_PORT) || 5432,
+      database: process.env.POSTGRES_DATABASE || "codeguard",
+      user: process.env.POSTGRES_MIGRATION_USER,
+      password: process.env.POSTGRES_MIGRATION_PASSWORD,
+      ssl,
+    });
+  }
+
+  return createPostgresPool();
+}
+
+export interface SchemaVerificationResult {
+  verified: boolean;
+  totalMigrations: number;
+  appliedMigrations: number;
+}
+
+/**
+ * Validates the PostgreSQL database schema state using strictly read-only queries (zero DDL).
+ * Safe to execute by least-privilege runtime users (codeguard_app) that lack DDL / CREATE permissions.
+ */
+export async function verifyPostgresSchema(
+  pool?: pg.Pool,
+  explicitDir?: string
+): Promise<SchemaVerificationResult> {
+  const resolvedDir = resolvePostgresMigrationsDir(explicitDir);
+  const activePool = pool ?? createPostgresPool();
+  const client = await activePool.connect();
+
+  try {
+    // 1. Verify that public._migrations table exists without attempting DDL
+    const tableCheck = await client.query(
+      "SELECT to_regclass('public._migrations') AS table_exists;"
+    );
+    const tableExists = tableCheck.rows && tableCheck.rows[0]?.table_exists !== null;
+
+    if (!tableExists) {
+      throw new Error(
+        `[Postgres Schema Verification] [FATAL] Database schema is uninitialized: 'public._migrations' table does not exist.\n` +
+          `  The runtime user operates with least privilege (DML only) and cannot execute DDL.\n` +
+          `  Apply database migrations using 'codeguard_migrator' (e.g. via 'npm run migrate:postgres') before starting the API.`
+      );
+    }
+
+    // 2. Fetch applied migrations using read-only SELECT
+    const appliedMap = await getAppliedPostgresMigrations(client);
+
+    // 3. Scan disk migration files in deterministic sequence
+    const files = fs
+      .readdirSync(resolvedDir)
+      .filter((f) => f.endsWith(".sql"))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+
+    // 4. Verify that each migration file has been applied with a matching checksum
+    const pending: string[] = [];
+    for (const file of files) {
+      const filePath = path.join(resolvedDir, file);
+      const content = fs.readFileSync(filePath, "utf8");
+      const checksum = computeChecksum(content);
+
+      if (!appliedMap.has(file)) {
+        pending.push(file);
+      } else {
+        const recorded = appliedMap.get(file)!;
+        if (recorded.checksum !== checksum) {
+          throw new Error(
+            `[Postgres Schema Verification] [FATAL] Checksum mismatch for migration "${file}"!\n` +
+              `  Recorded checksum : ${recorded.checksum}\n` +
+              `  Current checksum  : ${checksum}\n` +
+              `  Applied migrations cannot be modified. Create a new migration file instead.`
+          );
+        }
+      }
+    }
+
+    if (pending.length > 0) {
+      throw new Error(
+        `[Postgres Schema Verification] [FATAL] Database schema is out of date: ${pending.length} pending migration(s) detected.\n` +
+          `  Pending migrations:\n` +
+          pending.map((f) => `    - ${f}`).join("\n") +
+          `\n  The runtime user cannot execute DDL. Apply pending migrations with 'codeguard_migrator' before starting the API.`
+      );
+    }
+
+    return {
+      verified: true,
+      totalMigrations: files.length,
+      appliedMigrations: files.length,
+    };
+  } finally {
+    client.release();
+    if (!pool) {
+      await activePool.end();
+    }
+  }
+}
+
+/**
  * Runs all pending PostgreSQL migrations in deterministic order with advisory locking.
  */
 export async function runPostgresMigrations(
@@ -161,7 +279,7 @@ export async function runPostgresMigrations(
   const resolvedDir = resolvePostgresMigrationsDir(migrationsDir);
   console.log(`[Postgres Migration] Scanning migrations directory: ${resolvedDir}`);
 
-  const activePool = pool ?? createPostgresPool();
+  const activePool = pool ?? createMigratorPostgresPool();
   const client = await activePool.connect();
 
   let lockAcquired = false;
@@ -238,9 +356,21 @@ export async function runPostgresMigrations(
   }
 }
 
-// Run CLI directly if executed
-if (process.argv[1] && (process.argv[1].endsWith("postgres-migration-runner.ts") || process.argv[1].endsWith("postgres-migration-runner.js"))) {
+// Auto-run when executed directly via tsx or node
+const isMain =
+  process.argv[1] &&
+  (process.argv[1].endsWith("postgres-migration-runner.ts") ||
+    process.argv[1].endsWith("postgres-migration-runner.js") ||
+    pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url);
+
+if (isMain) {
   runPostgresMigrations()
-    .then(() => process.exit(0))
-    .catch(() => process.exit(1));
+    .then(() => {
+      console.log("PostgreSQL migration process completed successfully.");
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error("PostgreSQL migration process failed:", error.message || error);
+      process.exit(1);
+    });
 }
