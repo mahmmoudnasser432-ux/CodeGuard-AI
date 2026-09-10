@@ -176,21 +176,48 @@ describe("PostgreSQL Configuration Validation & Dialect Isolation", () => {
   });
 });
 
-describe("Runtime Selection Boundary (Phase 6C-1 vs Phase 6C-2)", () => {
+describe("Runtime Selection Boundary (Phase 6C-3 DI Wiring)", () => {
   it("defaults application runtime to SQL Server and keeps PostgreSQL support additive-only", async () => {
     const { createApp } = await import("../src/app.js");
-    // Default call succeeds without throwing Phase 6C-2 runtime boundary error
     const instance = createApp();
     expect(instance).toBeDefined();
     expect(instance.app).toBeDefined();
-  }, 15000);
+    expect(instance.dbDialect).toBe("sqlserver");
+    expect(instance.postgresPool).toBeUndefined();
+  }, 30000);
 
-  it("safely blocks full application execution when dbDialect=postgres before Phase 6C-2 repository adapters exist", async () => {
+  it("requires valid configuration or shared pool when dbDialect=postgres", async () => {
     const { createApp } = await import("../src/app.js");
-    expect(() => createApp({ dbDialect: "postgres" })).toThrowError(
-      /DB_DIALECT=postgres runtime application mode is scheduled for Phase 6C-2/
-    );
-  }, 15000);
+    // Without valid POSTGRES_HOST / POSTGRES_DATABASE or pool, fails safely
+    const devEnv = {
+      ...process.env,
+      DB_DIALECT: "postgres",
+      POSTGRES_HOST: "",
+      POSTGRES_DATABASE: "",
+      DATABASE_URL: "",
+    };
+    expect(() =>
+      createApp({
+        dbDialect: "postgres",
+        envConfig: devEnv as any,
+      })
+    ).toThrowError(/Incomplete PostgreSQL configuration/);
+  }, 30000);
+
+  it("successfully instantiates all repositories with shared pg.Pool when dbDialect=postgres", async () => {
+    const { createApp } = await import("../src/app.js");
+    const mockPool = {
+      query: async () => ({ rows: [{ is_ready: 1 }] }),
+    } as any;
+
+    const instance = createApp({ dbDialect: "postgres", postgresPool: mockPool });
+    expect(instance).toBeDefined();
+    expect(instance.dbDialect).toBe("postgres");
+    expect(instance.postgresPool).toBe(mockPool);
+    expect(instance.userRepository).toBeDefined();
+    expect(instance.projectRepository).toBeDefined();
+    expect(instance.interviewRepository).toBeDefined();
+  }, 30000);
 });
 
 describe("PostgreSQL Error Diagnostics & Credential Sanitization", () => {

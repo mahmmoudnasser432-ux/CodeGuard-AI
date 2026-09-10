@@ -7,14 +7,14 @@ import { authController } from "./interfaces/http/controllers/auth-controller.js
 import { errorHandler } from "./interfaces/http/middleware/error-handler.js";
 import { apiRateLimiter, corsPolicy, securityHeaders } from "./interfaces/http/middleware/security.js";
 import { openApiDocument } from "./interfaces/http/openapi.js";
-import { SqlUserRepository } from "./infrastructure/repositories/sql-user-repository.js";
-import { SqlSessionRepository } from "./infrastructure/repositories/sql-session-repository.js";
-import { SqlRefreshTokenRepository } from "./infrastructure/repositories/sql-refresh-token-repository.js";
-import { SqlPasswordResetTokenRepository } from "./infrastructure/repositories/sql-password-reset-token-repository.js";
-import { SqlEmailVerificationTokenRepository } from "./infrastructure/repositories/sql-email-verification-token-repository.js";
+import pg from "pg";
+import { createAuthRepositories } from "./infrastructure/repositories/auth-repository-factory.js";
+import { createAnalysisProjectRepositories } from "./infrastructure/repositories/analysis-project-repository-factory.js";
+import { createOperationalRepositories } from "./infrastructure/repositories/operational-repository-factory.js";
 import { AuthService } from "./application/services/auth-service.js";
 import { EmailService } from "./application/services/email-service.js";
 import { sqlPool } from "./infrastructure/database/sqlserver.js";
+import { createPostgresPool } from "./infrastructure/database/postgres.js";
 import { getRedisHealth } from "./infrastructure/redis/client.js";
 import { env } from "./config/env.js";
 
@@ -22,17 +22,50 @@ const startTime = Date.now();
 
 export interface CreateAppOptions {
   dbDialect?: "sqlserver" | "postgres";
+  postgresPool?: pg.Pool;
+  envConfig?: typeof env;
 }
 
 export function createApp(options?: CreateAppOptions) {
-  const activeDialect = options?.dbDialect ?? env.DB_DIALECT;
+  const config = options?.envConfig ?? env;
+  const activeDialect = options?.dbDialect ?? config.DB_DIALECT;
+
+  let sharedPostgresPool: pg.Pool | undefined;
+  let ownsPostgresPool = false;
+
   if (activeDialect === "postgres") {
-    throw new Error(
-      "DB_DIALECT=postgres runtime application mode is scheduled for Phase 6C-2 (PostgreSQL Repositories). " +
-      "Currently, PostgreSQL configuration and migrations are verified, but domain repository adapters have not yet been implemented. " +
-      "Application startup with DB_DIALECT=postgres is blocked to prevent accidental fallback or connection attempts to SQL Server."
-    );
+    if (options?.postgresPool) {
+      sharedPostgresPool = options.postgresPool;
+    } else {
+      sharedPostgresPool = createPostgresPool(config);
+      ownsPostgresPool = true;
+    }
   }
+
+  // Instantiate repositories using the single shared pool for PostgreSQL or existing SQL Server path
+  const authRepos = createAuthRepositories(activeDialect, sharedPostgresPool);
+  const analysisProjectRepos = createAnalysisProjectRepositories(activeDialect, sharedPostgresPool);
+  const operationalRepos = createOperationalRepositories(activeDialect, sharedPostgresPool);
+
+  const {
+    userRepository,
+    sessionRepository,
+    refreshTokenRepository,
+    passwordResetTokenRepository,
+    emailVerificationTokenRepository,
+  } = authRepos;
+
+  const {
+    projectRepository,
+    analysisRepository,
+    reportRepository,
+  } = analysisProjectRepos;
+
+  const {
+    interviewRepository,
+    notificationRepository,
+    auditLogRepository,
+  } = operationalRepos;
 
   const app = express();
   const pinoHttpExport = pinoHttpModule as unknown as { default?: () => RequestHandler } & (() => RequestHandler);
@@ -45,11 +78,6 @@ export function createApp(options?: CreateAppOptions) {
 
   // Create shared instances
   const emailService = new EmailService();
-  const userRepository = new SqlUserRepository();
-  const sessionRepository = new SqlSessionRepository();
-  const refreshTokenRepository = new SqlRefreshTokenRepository();
-  const passwordResetTokenRepository = new SqlPasswordResetTokenRepository();
-  const emailVerificationTokenRepository = new SqlEmailVerificationTokenRepository();
 
   // Create auth service with injected dependencies
   const authService = new AuthService(
@@ -80,29 +108,43 @@ export function createApp(options?: CreateAppOptions) {
   app.get("/ready", async (_req, res) => {
     let aiServiceStatus = "unknown";
     try {
-      const aiRes = await fetch(`${env.AI_SERVICE_URL}/health`, { signal: AbortSignal.timeout(2000) });
+      const aiRes = await fetch(`${config.AI_SERVICE_URL}/health`, { signal: AbortSignal.timeout(2000) });
       aiServiceStatus = aiRes.ok ? "healthy" : "degraded";
     } catch {
       aiServiceStatus = "unreachable";
     }
 
     let databaseStatus = "unknown";
-    try {
-      if (!sqlPool.connected && !sqlPool.connecting) {
-        await sqlPool.connect();
+    if (activeDialect === "postgres") {
+      try {
+        if (sharedPostgresPool) {
+          const ping = await sharedPostgresPool.query("SELECT 1 AS is_ready;");
+          databaseStatus = ping.rows?.[0]?.is_ready === 1 ? "healthy" : "degraded";
+        } else {
+          databaseStatus = "disconnected";
+        }
+      } catch {
+        databaseStatus = "unreachable";
       }
-      if (sqlPool.connected) {
-        const ping = await sqlPool.request().query("SELECT 1 AS isReady");
-        databaseStatus = ping.recordset?.[0]?.isReady === 1 ? "healthy" : "degraded";
-      } else {
-        databaseStatus = "disconnected";
+    } else {
+      try {
+        if (!sqlPool.connected && !sqlPool.connecting) {
+          await sqlPool.connect();
+        }
+        if (sqlPool.connected) {
+          const ping = await sqlPool.request().query("SELECT 1 AS isReady");
+          databaseStatus = ping.recordset?.[0]?.isReady === 1 ? "healthy" : "degraded";
+        } else {
+          databaseStatus = "disconnected";
+        }
+      } catch {
+        databaseStatus = "unreachable";
       }
-    } catch {
-      databaseStatus = "unreachable";
     }
 
-    res.json({
-      status: "ready",
+    const isReady = activeDialect === "postgres" ? databaseStatus === "healthy" : true;
+    res.status(isReady ? 200 : 503).json({
+      status: isReady ? "ready" : "not_ready",
       service: "codeguard-api",
       dependencies: {
         aiService: aiServiceStatus,
@@ -122,8 +164,8 @@ export function createApp(options?: CreateAppOptions) {
   const authRouter = authController(authService, userRepository);
   app.use("/api/auth", authRouter);
 
-  // Mount analysis routes
-  app.use("/api/analyses", analysisController(userRepository));
+  // Mount analysis routes with injected analysisRepository
+  app.use("/api/analyses", analysisController(userRepository, analysisRepository));
 
   app.use(errorHandler);
 
@@ -134,6 +176,19 @@ export function createApp(options?: CreateAppOptions) {
     sessionRepository,
     refreshTokenRepository,
     passwordResetTokenRepository,
-    emailVerificationTokenRepository
+    emailVerificationTokenRepository,
+    projectRepository,
+    analysisRepository,
+    reportRepository,
+    interviewRepository,
+    notificationRepository,
+    auditLogRepository,
+    dbDialect: activeDialect,
+    postgresPool: sharedPostgresPool,
+    close: async () => {
+      if (ownsPostgresPool && sharedPostgresPool) {
+        await sharedPostgresPool.end();
+      }
+    },
   };
 }

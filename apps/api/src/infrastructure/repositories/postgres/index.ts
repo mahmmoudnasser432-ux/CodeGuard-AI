@@ -6,3 +6,6 @@ export { PostgresEmailVerificationTokenRepository } from "./postgres-email-verif
 export { PostgresProjectRepository } from "./postgres-project-repository.js";
 export { PostgresAnalysisRepository } from "./postgres-analysis-repository.js";
 export { PostgresReportRepository } from "./postgres-report-repository.js";
+export { PostgresInterviewRepository } from "./postgres-interview-repository.js";
+export { PostgresNotificationRepository } from "./postgres-notification-repository.js";
+export { PostgresAuditLogRepository } from "./postgres-audit-log-repository.js";

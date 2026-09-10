@@ -2,6 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import type { AnalysisType } from "../../../domain/entities/analysis.js";
 import type { User } from "../../../domain/entities/user.js";
 import type { UserRepository } from "../../../domain/repositories/user-repository.js";
+import type { AnalysisRepository } from "../../../domain/repositories/analysis-repository.js";
 import { codeAnalysisRequestSchema } from "../../../application/dto/analysis.dto.js";
 import { AiAnalysisService } from "../../../application/services/ai-analysis-service.js";
 import { SqlAnalysisRepository } from "../../../infrastructure/repositories/sql-analysis-repository.js";
@@ -50,10 +51,13 @@ async function resolveRequestedByUserId(req: Request, userRepository: UserReposi
   return systemUser.id;
 }
 
-export function analysisController(userRepository: UserRepository) {
+export function analysisController(
+  userRepository: UserRepository,
+  analysisRepository?: AnalysisRepository
+) {
   const router = Router();
   const aiService = new AiAnalysisService();
-  const repository = new SqlAnalysisRepository();
+  const repository = analysisRepository ?? new SqlAnalysisRepository();
 
   // GET /api/analyses - List recent analyses for current user
   router.get("/", optionalAuthenticate, async (req: Request, res: Response, next: NextFunction) => {

@@ -177,53 +177,81 @@ export const envSchema = z
           });
         }
       } else if (data.DB_DIALECT === "postgres") {
-        if (!data.POSTGRES_HOST || data.POSTGRES_HOST.trim() === "") {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["POSTGRES_HOST"],
-            message: "POSTGRES_HOST is required in production when DB_DIALECT=postgres.",
-          });
+        if (data.DATABASE_URL && data.DATABASE_URL.trim() !== "") {
+          try {
+            const parsedUrl = new URL(data.DATABASE_URL);
+            const host = parsedUrl.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+            if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["DATABASE_URL"],
+                message: "DATABASE_URL must not point to localhost in production.",
+              });
+            }
+          } catch {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["DATABASE_URL"],
+              message: "DATABASE_URL must be a valid connection URL.",
+            });
+          }
+
+          if (data.POSTGRES_SSL !== true) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["POSTGRES_SSL"],
+              message: "POSTGRES_SSL must be true in production to ensure encrypted database transit.",
+            });
+          }
         } else {
-          const lowerHost = data.POSTGRES_HOST.toLowerCase().trim();
-          if (lowerHost === "localhost" || lowerHost === "127.0.0.1" || lowerHost === "::1") {
+          if (!data.POSTGRES_HOST || data.POSTGRES_HOST.trim() === "") {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ["POSTGRES_HOST"],
-              message: "POSTGRES_HOST must not point to localhost in production.",
+              message: "POSTGRES_HOST is required in production when DB_DIALECT=postgres.",
+            });
+          } else {
+            const lowerHost = data.POSTGRES_HOST.toLowerCase().trim();
+            if (lowerHost === "localhost" || lowerHost === "127.0.0.1" || lowerHost === "::1") {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["POSTGRES_HOST"],
+                message: "POSTGRES_HOST must not point to localhost in production.",
+              });
+            }
+          }
+
+          if (!data.POSTGRES_DATABASE || data.POSTGRES_DATABASE.trim() === "") {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["POSTGRES_DATABASE"],
+              message: "POSTGRES_DATABASE is required in production when DB_DIALECT=postgres.",
             });
           }
-        }
 
-        if (!data.POSTGRES_DATABASE || data.POSTGRES_DATABASE.trim() === "") {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["POSTGRES_DATABASE"],
-            message: "POSTGRES_DATABASE is required in production when DB_DIALECT=postgres.",
-          });
-        }
+          if (!data.POSTGRES_USER || data.POSTGRES_USER.trim() === "") {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["POSTGRES_USER"],
+              message: "POSTGRES_USER is required in production when DB_DIALECT=postgres.",
+            });
+          }
 
-        if (!data.POSTGRES_USER || data.POSTGRES_USER.trim() === "") {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["POSTGRES_USER"],
-            message: "POSTGRES_USER is required in production when DB_DIALECT=postgres.",
-          });
-        }
+          if (!data.POSTGRES_PASSWORD || data.POSTGRES_PASSWORD.trim() === "") {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["POSTGRES_PASSWORD"],
+              message: "POSTGRES_PASSWORD is required in production when DB_DIALECT=postgres.",
+            });
+          }
 
-        if (!data.POSTGRES_PASSWORD || data.POSTGRES_PASSWORD.trim() === "") {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["POSTGRES_PASSWORD"],
-            message: "POSTGRES_PASSWORD is required in production when DB_DIALECT=postgres.",
-          });
-        }
-
-        if (data.POSTGRES_SSL !== true) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["POSTGRES_SSL"],
-            message: "POSTGRES_SSL must be true in production to ensure encrypted database transit.",
-          });
+          if (data.POSTGRES_SSL !== true) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["POSTGRES_SSL"],
+              message: "POSTGRES_SSL must be true in production to ensure encrypted database transit.",
+            });
+          }
         }
       }
 

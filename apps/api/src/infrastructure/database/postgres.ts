@@ -105,21 +105,47 @@ export function classifyPostgresError(
 }
 
 /**
+ * Validates that essential PostgreSQL configuration is present.
+ */
+export function validatePostgresConfig(envConfig: typeof env = env): void {
+  if (envConfig.DATABASE_URL && envConfig.DATABASE_URL.trim() !== "") {
+    return;
+  }
+  if (!envConfig.POSTGRES_HOST || envConfig.POSTGRES_HOST.trim() === "" ||
+      !envConfig.POSTGRES_DATABASE || envConfig.POSTGRES_DATABASE.trim() === "") {
+    throw new Error(
+      "Incomplete PostgreSQL configuration: either DATABASE_URL or POSTGRES_HOST and POSTGRES_DATABASE must be configured when DB_DIALECT=postgres."
+    );
+  }
+}
+
+/**
  * Builds a validated pg.PoolConfig from environment configuration.
  */
 export function createPostgresPoolConfig(envConfig: typeof env = env): pg.PoolConfig {
   const isProd = envConfig.NODE_ENV === "production";
-  return {
-    host: envConfig.POSTGRES_HOST,
-    port: envConfig.POSTGRES_PORT,
-    database: envConfig.POSTGRES_DATABASE,
-    user: envConfig.POSTGRES_USER,
-    password: envConfig.POSTGRES_PASSWORD,
+  const baseConfig: pg.PoolConfig = {
     ssl: envConfig.POSTGRES_SSL ? { rejectUnauthorized: isProd } : false,
     max: envConfig.POSTGRES_POOL_MAX,
     min: envConfig.POSTGRES_POOL_MIN,
     connectionTimeoutMillis: envConfig.POSTGRES_CONNECTION_TIMEOUT,
     idleTimeoutMillis: envConfig.POSTGRES_IDLE_TIMEOUT,
+  };
+
+  if (envConfig.DATABASE_URL && envConfig.DATABASE_URL.trim() !== "") {
+    return {
+      ...baseConfig,
+      connectionString: envConfig.DATABASE_URL,
+    };
+  }
+
+  return {
+    ...baseConfig,
+    host: envConfig.POSTGRES_HOST,
+    port: envConfig.POSTGRES_PORT,
+    database: envConfig.POSTGRES_DATABASE,
+    user: envConfig.POSTGRES_USER,
+    password: envConfig.POSTGRES_PASSWORD,
   };
 }
 
@@ -127,6 +153,7 @@ export function createPostgresPoolConfig(envConfig: typeof env = env): pg.PoolCo
  * Creates and returns a new pg.Pool with error handling and logging.
  */
 export function createPostgresPool(envConfig: typeof env = env): pg.Pool {
+  validatePostgresConfig(envConfig);
   const pool = new Pool(createPostgresPoolConfig(envConfig));
 
   pool.on("error", (err) => {
